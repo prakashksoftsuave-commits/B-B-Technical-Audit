@@ -1,0 +1,74 @@
+/* Element defaults and the type ramp. Component classes live in app.css. */
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 17px;
+  /* The half-step the system is built on. 400 reads thin and washes the whole
+     page out; 500 is the headline weight. Do not "simplify" this to 400. */
+  font-weight: 450;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Line-height tightens as size grows: display locks up, body breathes. */
+h1, h2, h3 {
+  margin: 0;
+  font-weight: 500;
+  letter-spacing: var(--tight);
+  text-wrap: balance;
+}
+h1 { font-size: clamp(30px, 3.5vw, 42px); line-height: 1.07; }
+h2 { font-size: 26px; line-height: 1.15; }
+h3 { font-size: 20px; line-height: 1.2; }
+
+p { margin: 0; }
+
+a { color: var(--clay); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button { font-family: inherit; }
+
+code, .mono { font-family: var(--mono); }
+.muted { color: var(--slate); }
+.right { text-align: right; }
+.nowrap { white-space: nowrap; }
+
+/* Site laptops get dusty screens and daylight glare, so focus is loud. The
+   accent doubles as the focus colour — it is the system's attention cue. */
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ── eyebrow ──────────────────────────────────────────────────────────────
+   Uppercase is allowed at this size and nowhere else. The dot is not
+   decoration — it is the identity of the section label. */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: var(--wide);
+  text-transform: uppercase;
+  color: var(--slate);
+}
+.eyebrow::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}

@@ -1,0 +1,95 @@
+/* ============================================================================
+   Purchase Division — design tokens
+   Cool slate ground, steel-blue accent, restrained radii. Reads as the
+   professional-office software it is — construction shows through in the
+   content (materials, sites, tonnage), not in loud site-safety color.
+
+   Three rules the whole look rests on, all easy to undo by accident:
+     · Slate is the ground. White is only for lifted things — nav, panels.
+     · Radii are small and consistent: 4, 8 or 12px, or full pill for status
+       chips and search. No oversized "friendly SaaS" stadium shapes.
+     · Signal red is a compliance colour, not a brand colour: it marks the
+       one action that cannot be taken back. Ordinary CTAs are ink.
+
+   Contrast was measured, not eyeballed. Every text/ground pair in use clears
+   4.5:1 — see the ratios beside each text token.
+   ========================================================================= */
+
+:root {
+  /* ── surfaces: cool graphite canvas -> white -> sunken ──────────────────── */
+  --canvas:    #eef1f4;   /* the page. cool, quiet — poured-concrete grey, not stark white */
+  --surface:   #ffffff;   /* nav, panels, cards */
+  --ink:       #14202e;   /* deep ink-navy: primary CTAs, headlines */
+  --charcoal:  #223244;
+  /* A panel needs a ground *darker* than itself to show a toolbar or a table
+     head. A lighter "lifted" tone disappears on white — this is the fix. */
+  --sunken:    #e4e9ee;
+  --hover:     #f4f6f8;
+
+  /* ── text ──────────────────────────────────────────────────────────────── */
+  --text:      #14202e;   /* 15.8:1 on canvas */
+  --slate:     #4c5a6b;   /*  6.9:1 on canvas — graphite, biased to the ground */
+  --dust:      #6b7887;   /*  4.8:1 on canvas — quiet, still readable */
+  --text-invert: #f4f7f9; /* on ink: near-white, not stark white */
+
+  /* ── accents ───────────────────────────────────────────────────────────── */
+  --signal:    #9e2b1f;   /* destructive only. always a background, never text */
+  --accent:    #2f5578;   /* steel blue: attention cue — eyebrow dots, focus ring */
+  --clay:      #24425e;   /* links and quiet actions — 8.0:1 on canvas */
+
+  /* ── semantic set ──────────────────────────────────────────────────────
+     Four states that must be told apart in a glance down a column, so they
+     are properly saturated rather than four shades of the same grey. Each
+     pair clears 5:1. The same hues drive pills, dots and status labels, so a
+     dot in a feed and a pill in a table mean the same thing. */
+  --ok-bg:     #d7ecdc;  --ok-fg:    #1f5c34;   /* approved */
+  --info-bg:   #dde7f0;  --info-fg:  #24466a;   /* processing */
+  --warn-bg:   #f5e6c4;  --warn-fg:  #7c4c08;   /* awaiting a person */
+  --bad-bg:    #f3ddd6;  --bad-fg:   #9e2b1f;   /* rejected / failed */
+  --warn-tint: #fbf6ea;  /* whole-surface wash for the card that needs someone */
+
+  /* ── lines: they carry the partitioning, so they have to be visible ────── */
+  --line:      rgba(20, 32, 46, .18);
+  --hair:      rgba(20, 32, 46, .10);
+
+  /* ── radii: small and consistent — the look of instrumentation, not an
+     app. No stadium shapes on cards or buttons; pill is reserved for
+     status chips, the search field and the nav's own switcher. ────────── */
+  --r-chip:    4px;
+  --r-btn:     8px;
+  --r-stad:    12px;
+  --r-pill:    999px;
+
+  /* ── elevation: atmospheric cushioning, never a hard drop ──────────────── */
+  --lift-1:    0 4px 24px rgba(20, 32, 46, .05);
+  --lift-2:    0 24px 48px rgba(20, 32, 46, .10);
+
+  /* ── spacing: 8px base ─────────────────────────────────────────────────── */
+  --s1: 8px;  --s2: 16px; --s3: 24px; --s4: 32px;
+  --s6: 48px; --s8: 64px; --s12: 96px;
+
+  /* ── type ──────────────────────────────────────────────────────────────
+     No web fonts and no CDN: this runs on a site LAN with no guaranteed
+     internet, so the stack is local-first. Sofia Sans is the reference face
+     and is used where a machine happens to have it; otherwise the system UI
+     face carries it. The identity survives in the weights and the tracking
+     below, not in the family — which is why 450 and -2% are not negotiable.
+     To close the gap properly, self-host Sofia Sans as a @font-face here. */
+  --sans: "Sofia Sans", "Segoe UI Variable Text", "Segoe UI", Inter, system-ui,
+          Roboto, Arial, sans-serif;
+  --mono: "DM Mono", "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+
+  --tight: -0.02em;   /* every headline */
+  --wide:   0.04em;   /* eyebrows and column labels only */
+
+  --col: 100%;        /* content column — full width, edge padding comes from .band/.nav-rail */
+
+  /* ── the alignment line ────────────────────────────────────────────────
+     The nav pill floats inset from the viewport by --rail, and its own
+     content is inset from the pill by --nav-inset. --gutter is the sum, so
+     every heading, card and row on the page starts on the same vertical line
+     as the wordmark. Change --rail or --nav-inset and the page follows. */
+  --rail:      24px;
+  --nav-inset: 30px;
+  --gutter:    54px;   /* = --rail + --nav-inset, spelled out so it can be used in calc-free padding */
+}

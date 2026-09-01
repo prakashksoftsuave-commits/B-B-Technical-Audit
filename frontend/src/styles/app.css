@@ -1,0 +1,541 @@
+/* ============================================================================
+   Monthly Outcome console — component styles.
+   Tokens in tokens.css, element defaults in base.css. Both are shared verbatim
+   with the Purchase Division console so the two read as one product.
+
+   What is different here, and why: this screen is read by people checking
+   figures down a column, so tables are denser than that console's document
+   rows and every number is tabular. The floating nav pill, the eyebrow rules,
+   the pill vocabulary and the 8px scale are unchanged.
+   ========================================================================= */
+
+.shell { min-height: 100%; padding-bottom: var(--s12); }
+
+/* ── floating nav ─────────────────────────────────────────────────────────── */
+
+.nav-rail {
+  position: sticky; top: 0; z-index: 40;
+  padding: var(--rail) var(--rail) 0;
+  background: var(--canvas);
+}
+.nav {
+  max-width: var(--col); margin: 0 auto;
+  min-height: 64px;
+  padding: 9px 10px 9px var(--nav-inset);
+  display: flex; align-items: center; gap: 18px;
+  background: var(--surface);
+  border-radius: var(--r-stad);
+  box-shadow: var(--lift-1);
+}
+.nav .spacer { flex: 1; }
+
+.brand { font-size: 21px; font-weight: 600; letter-spacing: var(--tight); white-space: nowrap; }
+.brand i { font-style: normal; color: var(--clay); }
+
+.nav-links { display: flex; gap: 4px; flex-wrap: wrap; }
+.nav-links button {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 0; background: none;
+  font-size: 15px; font-weight: 500; letter-spacing: -0.015em;
+  color: var(--slate);
+  padding: 10px 16px; border-radius: var(--r-btn);
+  cursor: pointer; white-space: nowrap;
+}
+.nav-links button:hover { color: var(--ink); background: var(--canvas); }
+.nav-links button[aria-current="page"] { background: var(--ink); color: var(--text-invert); }
+/* Financial Outcome is the main product - a touch heavier even at rest, not a badge or a
+   colour, so it reads as "the primary page" rather than "something needs attention". */
+.nav-links button.nav-primary:not([aria-current="page"]) { font-weight: 650; color: var(--ink); }
+/* A count that needs someone reads in the compliance colour, everywhere it appears. */
+.nav-links .n {
+  font-family: var(--mono); font-size: 12px; font-weight: 500;
+  padding: 1px 7px; border-radius: var(--r-pill);
+  background: var(--sunken); color: var(--slate);
+}
+.nav-links button[aria-current="page"] .n { background: rgba(255,255,255,.16); color: #fff; }
+.nav-links .n.hot { background: var(--bad-bg); color: var(--bad-fg); }
+
+/* Connection state belongs in the chrome: it explains where the figures came from. */
+.link-state {
+  display: flex; align-items: center; gap: 9px;
+  padding: 0 16px; min-height: 44px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  font-size: 13.5px; color: var(--slate); white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .nav { flex-wrap: wrap; padding: 14px 16px; }
+  .nav .spacer { display: none; }
+}
+
+/* ── bands and sections ───────────────────────────────────────────────────── */
+
+.band { padding: 0 var(--gutter); }
+@media (max-width: 720px) { .band { padding: 0 var(--rail); } }
+.col { max-width: var(--col); margin: 0 auto; }
+
+.section { margin-top: var(--s6); }
+.section-head {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  margin-bottom: var(--s3);
+}
+.section-head .spacer { flex: 1; }
+.section-head:has(.eyebrow) {
+  padding-bottom: 14px; border-bottom: 1px solid var(--hair); margin-bottom: var(--s3);
+}
+.section-head .eyebrow { font-size: 14px; color: var(--ink); letter-spacing: 0.06em; }
+.section-head .eyebrow::before { width: 7px; height: 7px; }
+
+.tag {
+  font-family: var(--mono); font-size: 12.5px; color: var(--slate);
+  border: 1px solid var(--hair); border-radius: var(--r-pill); padding: 4px 14px;
+}
+.tag.hot { border-color: var(--bad-fg); color: var(--bad-fg); }
+
+.pagetitle { display: flex; align-items: flex-end; gap: var(--s3); flex-wrap: wrap; margin: var(--s6) 0 0; }
+.pagetitle .spacer { flex: 1; }
+.pagetitle .lede { margin-top: 12px; font-size: 17.5px; color: var(--slate); max-width: 62ch; }
+.pagetitle-filters { flex: 1; display: flex; justify-content: flex-end; }
+.pagetitle-filters .filter-bar { justify-content: flex-end; }
+
+/* ── controls ─────────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  min-height: 46px; padding: 0 26px;
+  border: 1.5px solid transparent; border-radius: var(--r-btn);
+  font-size: 16px; font-weight: 500; letter-spacing: var(--tight);
+  cursor: pointer; white-space: nowrap; text-decoration: none;
+}
+.btn-ink { background: var(--ink); border-color: var(--ink); color: var(--text-invert); }
+.btn-ink:hover { background: var(--charcoal); }
+.btn-out { background: var(--surface); border-color: var(--ink); color: var(--ink); font-weight: 450; }
+.btn-out:hover { background: var(--canvas); text-decoration: none; }
+.btn-quiet { background: transparent; border-color: var(--line); color: var(--ink); font-weight: 450; }
+.btn-quiet:hover { background: var(--surface); }
+/* Approve is the primary action on a reconciliation line - a filled, unmissable button, not
+   the same quiet outline as Undo or a "no decision needed" row. Green because approving is
+   always a positive/confirming action, never the destructive one. */
+.btn-approve { background: var(--ok-fg); border-color: var(--ok-fg); color: #fff; font-weight: 600; }
+.btn-approve:hover { background: #163f26; border-color: #163f26; }
+.btn-approve:focus-visible { outline-color: var(--ok-fg); }
+.btn-sm { min-height: 40px; padding: 0 18px; font-size: 14.5px; }
+.btn-xs { min-height: 26px; padding: 0 10px; font-size: 12.5px; gap: 5px; }
+.decide-row { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+/* The portfolio-wide Finalize action sits at the bottom of its own table, right-aligned like a
+   form's submit button, with the reason some projects were left out stated plainly above it
+   instead of buried in a popup only visible after the click. */
+.finalize-panel { display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--hair); }
+.finalize-note { margin: 0; font-size: 13px; color: var(--slate); text-align: right; }
+.finalize-summary {
+  width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px var(--s2); font-size: 13px;
+}
+.finalize-summary.ok { background: var(--ok-bg); border-color: var(--ok-fg); color: var(--ok-fg); }
+.finalize-summary p { margin: 0; }
+.finalize-summary .skipped { color: var(--slate); }
+.finalize-summary.ok .skipped { color: var(--ink); }
+.finalize-summary button {
+  margin-left: auto; background: none; border: none; color: inherit; font-weight: 600;
+  text-decoration: underline; cursor: pointer; padding: 0; font-size: inherit;
+}
+
+.input, select.input {
+  min-height: 40px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--r-btn);
+  background: var(--surface); color: var(--ink);
+  font: inherit; font-size: 14.5px;
+}
+.input:focus { border-color: var(--ink); outline: none; }
+.filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* Chip-styled filter: same pill vocabulary as the nav's connection-state chips, so a filter
+   reads as "one of these" rather than a stray form control dropped on the page. */
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 44px; padding: 0 8px 0 16px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--surface); white-space: nowrap;
+}
+.filter-chip:focus-within { border-color: var(--ink); }
+.filter-chip > span {
+  font-size: 10px; font-weight: 700; letter-spacing: var(--wide); text-transform: uppercase;
+  color: var(--dust);
+}
+.filter-chip select {
+  border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: 14.5px; font-weight: 500;
+  min-height: 40px; padding: 0 22px 0 2px;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7'><path d='M0 0l5 6 5-6z' fill='%236b7887'/></svg>");
+  background-repeat: no-repeat; background-position: right 2px center;
+}
+.filter-chip select:focus { outline: none; }
+.filter-bar input.input { min-width: 220px; }
+
+/* ── pills and dots: same vocabulary as the Purchase console ───────────────── */
+
+.pill {
+  display: inline-flex; align-items: center;
+  border-radius: var(--r-pill); padding: 4px 12px;
+  font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: var(--wide);
+  text-transform: uppercase; white-space: nowrap;
+}
+.pill-type { background: transparent; border: 1px solid var(--line); color: var(--slate); }
+.s-ok   { background: var(--ok-bg);   color: var(--ok-fg); }
+.s-info { background: var(--info-bg); color: var(--info-fg); }
+.s-warn { background: var(--warn-bg); color: var(--warn-fg); }
+.s-bad  { background: var(--bad-bg);  color: var(--bad-fg); }
+.s-mute { background: var(--sunken);  color: var(--clay); }
+
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; }
+.d-ok { background: var(--ok-fg); }
+.d-no { background: var(--bad-fg); }
+.d-hot { background: var(--accent); }
+.d-mute { background: var(--dust); }
+
+/* ── cards and stat groups ────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface); border: 1px solid var(--hair);
+  border-radius: var(--r-stad); overflow: hidden;
+}
+.card > header {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 16px var(--s3); border-bottom: 1px solid var(--hair);
+}
+.card > header .spacer { flex: 1; }
+.card > header h3 { font-size: 17px; }
+.card > header p { font-size: 13.5px; color: var(--slate); margin-top: 3px; }
+.card .pad { padding: var(--s3); }
+
+.grid2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: var(--s3); }
+@media (max-width: 1180px) { .grid2 { grid-template-columns: minmax(0,1fr); } }
+
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: var(--s3); }
+@media (max-width: 1180px) { .grid3 { grid-template-columns: minmax(0,1fr); } }
+
+/* Numbers first, label under: the figure is what is being scanned for. */
+.tally {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 1px; background: var(--hair);
+  border: 1px solid var(--hair); border-radius: var(--r-stad); overflow: hidden;
+}
+.tally > div { background: var(--surface); padding: 18px var(--s3) 20px; }
+.tally-icon { display: block; margin-bottom: 10px; color: var(--dust); }
+.tally-icon svg { width: 24px; height: 24px; stroke-width: 2.1; }
+.tally b {
+  display: block; font-family: var(--mono);
+  font-size: 25px; font-weight: 500; line-height: 1.05;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+}
+.tally span {
+  display: block; margin-top: 9px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: var(--wide);
+  text-transform: uppercase; color: var(--slate);
+}
+.tally em { display: block; margin-top: 5px; font-size: 12.5px; font-style: normal; color: var(--dust); }
+.tally .hot b { color: var(--bad-fg); }
+.tally .warm b { color: var(--warn-fg); }
+.tally .cool b { color: var(--info-fg); }
+.tally .good b { color: var(--ok-fg); }
+/* The one figure a KPI strip exists to answer reads larger than its neighbours, not the same
+   size as "total projects" - weight follows importance, not position in the row. */
+.tally .big b { font-size: 34px; }
+
+/* Current vs Final: two labelled result blocks in one card, not two separate cards - a reader
+   should see them as two readings of the same statement, not two different reports. Final gets
+   a heavier top rule, not a colour wash, since it is the section that matters most. */
+.result-block + .result-block { border-top: 1px solid var(--hair); }
+.result-block.emphasis { border-top: 2px solid var(--ink); }
+.result-block.t-warn { background: var(--warn-tint); }
+.result-heading {
+  padding: 14px var(--s3) 0; font-size: 12px; font-weight: 700; letter-spacing: var(--wide);
+  text-transform: uppercase; color: var(--ink);
+}
+.result-note { padding: 4px var(--s3) 0; font-size: 13px; color: var(--slate); }
+.flow-group-label {
+  padding: 8px var(--s3) 0; font-size: 10px; font-weight: 700; letter-spacing: var(--wide);
+  text-transform: uppercase; color: var(--dust);
+}
+
+/* The financial statement: a real table, not floating metric blocks. Description left, amount
+   right and tabular, a ruled total row - the calculation reads down the page, never sideways
+   with an operator character standing in for structure. Contract position and financial
+   performance sit side by side rather than stacked, so a wide card is put to use instead of
+   leaving half of it empty. */
+.stmt-columns { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); align-items: start; }
+/* A grid child defaults to min-width:auto, so a table inside it refuses to shrink below its own
+   content width and spills the column out of the card instead of wrapping. This is the fix. */
+.stmt-columns > div { min-width: 0; }
+@media (max-width: 860px) { .stmt-columns { grid-template-columns: 1fr; } }
+table.stmt-t {
+  /* width:100% plus horizontal margins would make this wider than its container by exactly
+     those margins - the actual cause of the cut-off column. calc() accounts for them instead. */
+  width: calc(100% - 2 * var(--s3)); margin: 6px var(--s3) var(--s2);
+  border-collapse: collapse; table-layout: fixed; font-size: 14.5px;
+}
+table.stmt-t th:first-child, table.stmt-t td:first-child { width: 62%; }
+table.stmt-t th:last-child, table.stmt-t td:last-child { width: 38%; }
+table.stmt-t th {
+  text-align: right; padding: 7px 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: var(--wide);
+  text-transform: uppercase; color: var(--dust);
+  border-bottom: 1px solid var(--hair);
+}
+table.stmt-t th:first-child { text-align: left; }
+table.stmt-t td { padding: 7px 4px; text-align: right; border-bottom: 1px solid var(--hair); }
+table.stmt-t tr:last-child td { border-bottom: 0; }
+table.stmt-t td:first-child { text-align: left; color: var(--charcoal); }
+table.stmt-t td:last-child {
+  font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 15px;
+}
+table.stmt-t tr.sub td { color: var(--slate); font-size: 13.5px; }
+table.stmt-t tr.sub td:last-child { font-size: 13.5px; }
+table.stmt-t tr.total td { border-top: 1px solid var(--line); font-weight: 600; padding-top: 10px; }
+table.stmt-t td.t-good { color: var(--ok-fg); }
+table.stmt-t td.t-bad  { color: var(--bad-fg); }
+table.stmt-t td.t-warn { color: var(--warn-fg); }
+
+.stmt-actions {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: var(--s2) var(--s3) var(--s3);
+}
+
+/* The "why is my profit this number" breakdown: revenue down to profit, one line per
+   deduction, most recent (least resolved) state visually distinct from a locked-in total. */
+.waterfall { font-size: 14.5px; }
+.waterfall-row {
+  display: flex; justify-content: space-between; gap: var(--s2);
+  padding: 8px 0; border-bottom: 1px solid var(--hair);
+}
+.waterfall-row b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 500; }
+.waterfall-row.head { font-weight: 600; border-bottom: 1.5px solid var(--ink); }
+.waterfall-row.total { font-weight: 700; border-bottom: none; border-top: 1.5px solid var(--ink); }
+.waterfall-row.t-warn { color: var(--warn-fg); }
+.waterfall-row.t-warn b { color: var(--warn-fg); }
+
+.dim-note { font-size: 13.5px; color: var(--slate); margin: 0; }
+
+/* ── tables ───────────────────────────────────────────────────────────────── */
+
+.table-wrap { overflow-x: auto; }
+table.data { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+table.data thead th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; padding: 0;
+  background: var(--sunken);
+  font-size: 10.5px; font-weight: 700; letter-spacing: var(--wide);
+  text-transform: uppercase; color: var(--slate); white-space: nowrap;
+}
+table.data thead th.num { text-align: right; }
+/* The clickable/focusable surface is the inner element, not the <th> itself, so a sortable
+   column header is a real button - reachable and activatable from the keyboard, not just a
+   mouse target. aria-sort on the <th> carries the state for assistive tech. */
+table.data thead th .th-label {
+  display: flex; align-items: center; gap: 5px;
+  width: 100%; padding: 11px 18px; box-sizing: border-box;
+}
+table.data thead th.num .th-label { justify-content: flex-end; }
+table.data thead th button.th-sort {
+  background: none; border: 0; font: inherit; color: inherit;
+  text-transform: inherit; letter-spacing: inherit; cursor: pointer; user-select: none;
+}
+table.data thead th button.th-sort:hover { color: var(--ink); }
+table.data thead th .caret { font-size: 9px; }
+table.data tbody td {
+  padding: 10px 18px; border-top: 1px solid var(--hair); vertical-align: top;
+}
+table.data tbody tr:hover td { background: var(--hover); }
+table.data td.num {
+  text-align: right; font-family: var(--mono); font-size: 14px;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+table.data td.dim { color: var(--slate); }
+table.data td.mono { font-family: var(--mono); font-size: 13px; color: var(--slate); }
+table.data td.wrap { min-width: 280px; }
+table.data td.nowrap { white-space: nowrap; }
+table.data tfoot td {
+  padding: 12px 18px; font-weight: 500;
+  border-top: 1.5px solid var(--ink); background: var(--sunken);
+}
+table.data tfoot td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.neg { color: var(--signal); }
+.row-total td { font-weight: 700; background: var(--sunken); border-top: 1.5px solid var(--ink); }
+.row-flag td { background: var(--warn-tint); }
+.row-child td { background: var(--hover); }
+.row-child td.wrap { color: var(--slate); }
+.child-item { padding-left: 22px; color: var(--slate); }
+.row-toggle {
+  background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+  font: inherit; color: inherit; text-align: left; display: inline-flex;
+  align-items: baseline; gap: 8px;
+}
+.row-toggle .caret {
+  display: inline-block; font-size: 10px; color: var(--slate);
+  transition: transform 0.12s ease;
+}
+.row-toggle .caret.open { transform: rotate(90deg); }
+.row-section td { padding: 10px 18px; background: var(--sunken); }
+.section-banner {
+  font-size: 10.5px; font-weight: 700; letter-spacing: var(--wide); text-transform: uppercase;
+  color: var(--slate);
+}
+.empty { padding: var(--s6) var(--s3); text-align: center; color: var(--dust); font-size: 15px; }
+
+/* ── bars ─────────────────────────────────────────────────────────────────── */
+
+.bars { display: grid; gap: 11px; }
+.bar { display: grid; grid-template-columns: 190px 1fr 92px; align-items: center; gap: 14px; }
+.bar .lab { font-size: 14px; color: var(--charcoal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .track { height: 18px; background: var(--sunken); border-radius: var(--r-chip); overflow: hidden; display: flex; }
+.bar .track i { display: block; height: 100%; }
+.bar .val { font-family: var(--mono); font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .bar { grid-template-columns: 120px 1fr 78px; } }
+
+.legend { display: flex; flex-wrap: wrap; gap: 15px; margin-top: var(--s2); font-size: 13px; color: var(--slate); }
+.legend span { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; display: block; }
+
+/* ── misc ─────────────────────────────────────────────────────────────────── */
+
+.note { font-size: 14.5px; color: var(--slate); max-width: 92ch; }
+.note b { color: var(--ink); font-weight: 500; }
+.kvlist { display: grid; grid-template-columns: auto 1fr; gap: 10px var(--s3); font-size: 14.5px; align-items: baseline; }
+.kvlist dt { margin: 0; }
+.kvlist dd { margin: 0; color: var(--slate); }
+
+.log {
+  font-family: var(--mono); font-size: 13px;
+  background: var(--ink); color: #cfd8e2;
+  padding: var(--s2) var(--s3); border-radius: var(--r-btn);
+  overflow-x: auto; white-space: pre; line-height: 1.7;
+}
+
+.banner { padding: var(--s2) var(--s3); border-radius: var(--r-btn); font-size: 14.5px; }
+.banner-err { background: var(--bad-bg); color: var(--bad-fg); }
+.banner-ok  { background: var(--ok-bg);  color: var(--ok-fg); }
+
+.center { display: grid; place-items: center; min-height: 58vh; text-align: center; padding: var(--s6); }
+.center h2 { margin-bottom: 12px; }
+.center p { color: var(--slate); max-width: 56ch; margin: 0 auto var(--s3); }
+
+.spin {
+  width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.35);
+  border-top-color: #fff; border-radius: 50%;
+  animation: sp .7s linear infinite; display: inline-block;
+}
+.btn-out .spin, .btn-quiet .spin { border-color: var(--line); border-top-color: var(--ink); }
+@keyframes sp { to { transform: rotate(360deg); } }
+
+/* ── outcome readiness ────────────────────────────────────────────────────
+   A management-level "why isn't this final" read, deliberately lighter than
+   Financial Outcome's tables: text rows, not a data grid. Reuses the
+   semantic colour set above; nothing here is shared with another screen. */
+
+.readiness-banner {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s3); border-radius: var(--r-stad);
+}
+.readiness-banner b { display: block; font-size: 17px; }
+.readiness-banner p { margin-top: 3px; font-size: 14px; }
+.readiness-dot {
+  width: 14px; height: 14px; border-radius: 50%; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: var(--surface);
+}
+.readiness-ok   { background: var(--ok-bg);   color: var(--ok-fg); }
+.readiness-ok .readiness-dot   { background: var(--ok-fg); }
+.readiness-info { background: var(--info-bg); color: var(--info-fg); }
+.readiness-info .readiness-dot { background: var(--info-fg); }
+.readiness-bad  { background: var(--bad-bg);  color: var(--bad-fg); }
+.readiness-bad .readiness-dot  { background: var(--bad-fg); }
+.readiness-banner .spacer { flex: 1; }
+
+/* ── home: recent activity ────────────────────────────────────────────────
+   A timeline of real recorded events (decisions, finalizations, the run
+   itself) - not the mini-list's label/value shape, so it gets its own rule. */
+
+.activity-list { display: grid; gap: var(--s2); }
+.activity-row { display: flex; justify-content: space-between; gap: var(--s2); }
+.activity-row .what b { display: block; font-size: 14px; font-weight: 500; }
+.activity-row .what span { display: block; margin-top: 2px; font-size: 13px; color: var(--slate); }
+.activity-row .when { flex: none; font-size: 12px; color: var(--dust); white-space: nowrap; }
+
+.readiness-projects { display: grid; }
+.readiness-project-row {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 12px 0; border-bottom: 1px solid var(--hair);
+}
+.readiness-project-row:last-child { border-bottom: none; }
+.readiness-project-row .link-btn {
+  border: none; background: none; padding: 0; font: inherit; font-size: 15px;
+  color: inherit; cursor: pointer; text-align: left;
+}
+.readiness-project-row .link-btn:hover:not(:disabled) { color: var(--accent); }
+.readiness-project-row .link-btn:disabled { cursor: default; color: var(--dust); }
+
+.evidence-row { display: flex; align-items: center; gap: var(--s2); padding: var(--s3); }
+
+.mini-list { display: grid; gap: 4px; margin-top: var(--s1); }
+.mini-list div { display: flex; justify-content: space-between; gap: var(--s2); font-size: 13px; color: var(--slate); }
+.mini-list b { font-family: var(--mono); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ── home: financial performance chart ────────────────────────────────────
+   Three single-metric bars per project, one shared scale - a grouped horizontal bar chart
+   built from the same .bar/.track pieces every other bar on this console already uses. */
+
+/* Flat, hard-edged fills and a bordered-but-flat card read as an old-school HTML progress bar
+   rather than a reporting product - a rounded fill cap and a soft lift fix that without
+   touching the shared .card/.bar rules every other screen still relies on. */
+#tab-home .card { box-shadow: var(--lift-1); transition: box-shadow .15s ease; }
+#tab-home .card:hover { box-shadow: var(--lift-2); }
+.perf-chart .bar .track { height: 20px; }
+.perf-chart .bar .track i {
+  border-radius: var(--r-chip);
+  transition: width .5s cubic-bezier(.22, .9, .32, 1);
+}
+
+.perf-chart { display: grid; gap: var(--s4); margin-top: var(--s2); }
+.perf-group { display: grid; gap: 4px; }
+.perf-group-head { display: flex; align-items: baseline; gap: 10px; }
+.perf-group-label { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.perf-group-margin { font-size: 12.5px; color: var(--slate); font-variant-numeric: tabular-nums; }
+/* Sorted highest-profit-first; the leading project's margin is the only thing that changes
+   colour - a quiet signal, not a wash across the whole row. */
+.perf-group.leader .perf-group-margin { color: var(--ok-fg); font-weight: 700; }
+
+/* ── home: attention cards ────────────────────────────────────────────────
+   Figure first, coloured by severity - the same red/amber/green vocabulary as pills, just at
+   a size meant to be read from across the room. */
+
+.attn-card { display: grid; gap: 6px; align-items: start; }
+.attn-head { display: flex; align-items: center; gap: 8px; }
+.attn-icon { display: flex; flex: none; }
+.attn-icon svg { width: 22px; height: 22px; stroke-width: 2.1; }
+.attn-title {
+  font-size: 11px; font-weight: 700; letter-spacing: var(--wide); text-transform: uppercase;
+  color: var(--slate);
+}
+.attn-figure { font-family: var(--mono); font-size: 23px; font-weight: 600; line-height: 1.1; }
+.attn-figure.t-bad  { color: var(--bad-fg); }
+.attn-figure.t-warn { color: var(--warn-fg); }
+.attn-figure.t-ok   { color: var(--ok-fg); }
+.attn-figure.t-info { color: var(--info-fg); }
+.attn-sub { font-size: 12.5px; color: var(--dust); }
+.attn-card .btn { justify-self: start; margin-top: 2px; }
+
+/* ── source data: summary strip ───────────────────────────────────────────
+   Same .tally grid as every other KPI strip, except one cell holds a wrapped row of source
+   pills instead of a single figure - the "what kinds of records are even in here" answer. */
+
+.source-pill-cell { display: flex; flex-direction: column; gap: 9px; align-items: flex-start; }
+.source-pill-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: var(--wide); text-transform: uppercase;
+  color: var(--slate);
+}
+.source-pill-list { display: flex; flex-wrap: wrap; gap: 6px; }
