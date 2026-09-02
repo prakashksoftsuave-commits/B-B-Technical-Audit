@@ -16,6 +16,11 @@ export const api = {
   run: (offline = false) => call(`/api/run?offline=${offline}`, { method: 'POST' }),
   selftest: () => call('/api/selftest', { method: 'POST' }),
   fetchMail: () => call('/api/mail/fetch', { method: 'POST' }),
+  sendReminder: (project, month, sentBy = '') => call('/api/reminders/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project, month, sentBy }),
+  }),
   reportUrl: '/api/report.xlsx',
   decide: (project, month, line, choice, opts = {}) => call('/api/decisions', {
     method: 'POST',

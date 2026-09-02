@@ -19,7 +19,7 @@ import datetime as dt
 
 from . import config as C
 
-ON_TIME, LATE, MISSING = "on time", "late", "not received"
+PENDING, ON_TIME, LATE, MISSING = "pending", "on time", "late", "not received"
 
 
 def expected():
@@ -38,8 +38,9 @@ def expected():
 def status(chosen, as_of=None):
     """Match the expected matrix against what actually arrived.
 
-    `chosen` is inbox.latest()[0]. `as_of` is the date the report is being run; anything not
-    yet received and already past cut-off counts as outstanding.
+    `chosen` is inbox.latest()[0]. `as_of` is the date the report is being run: nothing
+    received and still inside the cut-off is PENDING, not a problem yet; nothing received once
+    the cut-off has passed becomes MISSING - the automatic Pending -> Overdue transition.
     """
     as_of = as_of or dt.date.today()
     rows = []
@@ -50,7 +51,7 @@ def status(chosen, as_of=None):
             if e["optional"]:
                 continue
             rows.append({**e, "cutoff": cut, "due": C.due_date(e["month"]), "arrived": None,
-                         "days_late": None, "status": MISSING})
+                         "days_late": None, "status": PENDING if as_of < cut else MISSING})
             continue
         late_by = (got["arrived"] - cut).days
         rows.append({**e, "cutoff": cut, "due": C.due_date(e["month"]),
@@ -62,11 +63,12 @@ def status(chosen, as_of=None):
 
 
 def summary(rows):
-    n = len(rows)
+    on_time = [r for r in rows if r["status"] == ON_TIME]
     late = [r for r in rows if r["status"] == LATE]
     missing = [r for r in rows if r["status"] == MISSING]
-    return {"expected": n, "on_time": n - len(late) - len(missing),
-            "late": len(late), "missing": len(missing),
+    pending = [r for r in rows if r["status"] == PENDING]
+    return {"expected": len(rows), "on_time": len(on_time),
+            "late": len(late), "missing": len(missing), "pending": len(pending),
             "worst_delay": max((r["days_late"] or 0 for r in rows), default=0),
             "chronic": _chronic(rows)}
 
@@ -108,11 +110,12 @@ def outstanding_notices(rows, month_key):
     """The actual chase list for a month: one line per person per missing document.
 
     This is the artefact that replaces the manual follow-up - it is what the cut-off reminder
-    and the escalation mail would contain.
+    and the escalation mail would contain. PENDING is deliberately excluded alongside ON_TIME -
+    the cut-off has not passed yet, so there is nothing to chase, only something to wait for.
     """
     out = []
     for r in rows:
-        if r["month"] != month_key or r["status"] == ON_TIME:
+        if r["month"] != month_key or r["status"] in (ON_TIME, PENDING):
             continue
         out.append({"to": r["owner"], "project": r["project"], "kind": r["kind"],
                     "label": C.INPUT_LABEL[r["kind"]], "cutoff": r["cutoff"],
@@ -132,7 +135,7 @@ if __name__ == "__main__":
     rows = status(chosen, as_of=dt.date(2027, 1, 15))
     s = summary(rows)
     print(f"expected {s['expected']}  on time {s['on_time']}  late {s['late']}  "
-          f"missing {s['missing']}  worst {s['worst_delay']}d")
+          f"missing {s['missing']}  pending {s['pending']}  worst {s['worst_delay']}d")
     for r in rows:
         if r["status"] != ON_TIME:
             print(f"  {r['month']}  {r['project']}  {r['kind']:11s} {r['status']:13s} "

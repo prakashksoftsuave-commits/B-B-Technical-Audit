@@ -79,10 +79,18 @@ POST_DAYS = {"2026-05": ["01", "02", "31"], "2026-06": ["01", "02"],
              "2026-07": ["01", "02", "31"], "2026-08": ["01", "02", "31"],
              "2026-09": ["01", "02", "31"]}
 
-# The report is due at the end of the following month; contributors are given a cut-off ten
-# days earlier so the audit team is not left working in the last few days.
-DUE_DAY = 31
+# The Technical Audit division starts preparing a month's report on the 25th of the following
+# month - a business rule the user gave directly, not derived. Contributors are given a
+# cut-off ten days earlier so the audit team is not left working in the last few days.
+DUE_DAY = 25
 CUTOFF_LEAD_DAYS = 10
+
+# Rehearsal aid only: pins "today" for Pending/Overdue classification so a live demo survives
+# repeated Sync clicks without the clock silently reverting mid-walkthrough. Unset (the normal
+# state) means the real date, same as ever. Set POC_DEMO_AS_OF=YYYY-MM-DD in .env to freeze it;
+# remove the line to go back to real time. Touches only tracker.status()'s as_of - decision and
+# finalization timestamps stay on the real clock regardless.
+DEMO_AS_OF = os.environ.get("POC_DEMO_AS_OF", "").strip()
 
 # ---------------------------------------------------------------- projects
 # `tally` is the cost centre. `erp` is the ERP's own code. `aliases` are what people type in

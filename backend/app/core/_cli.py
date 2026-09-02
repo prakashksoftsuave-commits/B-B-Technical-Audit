@@ -61,12 +61,14 @@ def main(argv=None):
     print(f"ERP      : {len(res['erp_detail'])} module rows")
     print(f"Returns  : {len(res['inbox'])} received, {len(res['unroutable'])} unroutable")
 
-    as_of = dt.date.fromisoformat(a.as_of) if a.as_of else dt.date.today()
+    as_of = (dt.date.fromisoformat(a.as_of) if a.as_of
+             else dt.date.fromisoformat(C.DEMO_AS_OF) if C.DEMO_AS_OF
+             else dt.date.today())
     t_rows = tracker.status(res["chosen"], as_of=as_of)
     t_sum = tracker.summary(t_rows)
     print(f"\n== returns (as at {as_of:%d-%b-%Y}) ==")
     print(f"expected {t_sum['expected']}  on time {t_sum['on_time']}  late {t_sum['late']}  "
-          f"never arrived {t_sum['missing']}  worst {t_sum['worst_delay']}d")
+          f"overdue {t_sum['missing']}  pending {t_sum['pending']}  worst {t_sum['worst_delay']}d")
     for who, what in t_sum["chronic"].items():
         print(f"  late {len(what)}x: {who}")
 

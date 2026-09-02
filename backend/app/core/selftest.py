@@ -44,11 +44,13 @@ def t_strip_tag():
 
 
 def t_calendar():
-    """The buffer the division agreed: due at month end, contributors ten days earlier."""
-    assert C.due_date("2026-05") == dt.date(2026, 6, 30)   # June has 30 days: must clamp
-    assert C.due_date("2026-06") == dt.date(2026, 7, 31)
-    assert C.due_date("2026-07") == dt.date(2026, 8, 31)
-    assert C.cutoff_date("2026-07") == dt.date(2026, 8, 21)
+    """The audit team starts preparing on the 25th of the following month (user-given business
+    rule); contributors are given a cut-off ten days earlier. `due_date` still clamps to the
+    shorter month, kept as a safety net even though the 25th never needs it."""
+    assert C.due_date("2026-05") == dt.date(2026, 6, 25)
+    assert C.due_date("2026-06") == dt.date(2026, 7, 25)
+    assert C.due_date("2026-07") == dt.date(2026, 8, 25)
+    assert C.cutoff_date("2026-07") == dt.date(2026, 8, 15)
     assert (C.due_date("2026-07") - C.cutoff_date("2026-07")).days == C.CUTOFF_LEAD_DAYS
 
 
@@ -195,6 +197,29 @@ def t_restatement_is_reported_not_adopted():
         assert len(superseded) == 1 and superseded[0]["subject"] == "first"
 
 
+def t_pending_becomes_overdue_at_cutoff():
+    """A return not yet due is PENDING, not MISSING - the automatic Pending -> Overdue rule
+    the division's process needs. Same slot, nothing ever arrives; only `as_of` moves across
+    its cut-off."""
+    from . import tracker as T
+    month = C.MONTHS[0][0]
+    kind = C.INPUTS[0][0]
+    cut = C.cutoff_date(month)
+
+    def row(as_of):
+        rows = T.status({}, as_of=as_of)
+        return next(r for r in rows if r["month"] == month and r["kind"] == kind)
+
+    assert row(cut - dt.timedelta(days=1))["status"] == T.PENDING
+    assert row(cut)["status"] == T.MISSING, "due today already counts as overdue"
+    assert row(cut + dt.timedelta(days=1))["status"] == T.MISSING
+
+    # a pending item is not yet a problem - it must never reach the chase list
+    still_pending = T.status({}, as_of=cut - dt.timedelta(days=1))
+    notices = T.outstanding_notices(still_pending, month)
+    assert not any(n["label"] == C.INPUT_LABEL[kind] for n in notices)
+
+
 def t_rules_are_all_traceable():
     """Every rule left in the run must trace to something the division actually said."""
     assert len(O.RULES) == 4, "a rule was added without a basis"
@@ -206,7 +231,8 @@ def t_rules_are_all_traceable():
 TESTS = [t_project_resolution, t_rupees, t_strip_tag, t_calendar, t_tally_bucketing,
          t_compare_two_verdicts_only, t_consolidate_derives_nothing,
          t_outstanding_names_an_owner, t_check_catches_drift,
-         t_restatement_is_reported_not_adopted, t_rules_are_all_traceable]
+         t_restatement_is_reported_not_adopted, t_pending_becomes_overdue_at_cutoff,
+         t_rules_are_all_traceable]
 
 
 def run():

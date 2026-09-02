@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { api } from '../api'
 import DataTable from '../components/DataTable'
 import { Bar, Card, COST_COLORS, FilterChip, Legend, LOSS_COLOR, Pill, PROFIT_COLOR, Section,
   Tally } from '../components/Bits'
@@ -125,20 +126,41 @@ function AttentionCard({ tone, title, icon, figure, sub, detail, action, onActio
   )
 }
 
-const SUBMISSION_TONE = { late: 'warn', 'not received': 'bad' }
-const SUBMISSION_LABEL = { late: 'Late', 'not received': 'Not received' }
+const SUBMISSION_TONE = { late: 'warn', 'not received': 'bad', pending: 'info' }
+const SUBMISSION_LABEL = { late: 'Late', 'not received': 'Not received', pending: 'Not due yet' }
 
-export default function Home({ state, onNavigate, filterHost }) {
+export default function Home({ state, onNavigate, filterHost, onToast }) {
   const { masters, position, unattributed, submission } = state
   const latest = masters.months.at(-1).key
   const [month, setMonth] = useState(latest)
+  const [proj, setProj] = useState('all')
   const [evidenceOpen, setEvidenceOpen] = useState(false)
+  // One reminder mail covers everything outstanding for a project-month, not one per row - so
+  // "sent" is tracked per project-month, and clicking Remind on any row belonging to it marks
+  // every row in that group sent, matching what the single mail actually covered.
+  const [reminding, setReminding] = useState({})
+
+  async function sendReminder(project, monthKey) {
+    const key = `${project}|${monthKey}`
+    setReminding((s) => ({ ...s, [key]: 'sending' }))
+    try {
+      const res = await api.sendReminder(project, monthKey, 'Audit Lead')
+      setReminding((s) => ({ ...s, [key]: 'sent' }))
+      onToast?.(`Reminder sent to ${res.to}`)
+    } catch (e) {
+      setReminding((s) => ({ ...s, [key]: e.message || 'Send failed' }))
+      onToast?.(e.message || 'Reminder failed to send', 'bad')
+    }
+  }
 
   const ownerLabel = Object.fromEntries(masters.inputs.map((i) => [i.kind, i.owner]))
   const inMonth = (m) => m === null || m === month
-  const scopedRows = position.filter((p) => p.month === month)
+  const inProject = (p) => proj === 'all' || p === proj
+  const scopedProjects = proj === 'all' ? masters.projects
+    : masters.projects.filter((p) => p.code === proj)
+  const scopedRows = position.filter((p) => p.month === month && inProject(p.project))
 
-  const rows = masters.projects.map((p) => projectRow(p, scopedRows.find((r) => r.project === p.code)))
+  const rows = scopedProjects.map((p) => projectRow(p, scopedRows.find((r) => r.project === p.code)))
   const withData = rows.filter((r) => r.hasData)
 
   const portfolio = useMemo(() => {
@@ -159,14 +181,19 @@ export default function Home({ state, onNavigate, filterHost }) {
   const readyRows = scopedRows.filter((r) => r.status === 'READY_FOR_FINALIZATION')
   // Not received AND late-but-received - the client's own loudest complaint was the follow-up,
   // not the arithmetic, so "evidence status" covers both, not just outright-missing returns.
+  // "pending" is kept out of this list and its count on purpose: the cut-off has not passed
+  // yet, so it is not a problem - the automatic Pending -> Overdue rule. It is not hidden
+  // altogether though - pendingRows below surfaces it separately, neutrally, so "not due yet"
+  // stays visible without reading as something wrong.
   const lateRows = [...(submission?.rows || [])]
-    .filter((r) => r.month === month && r.status !== 'on time')
+    .filter((r) => r.month === month && inProject(r.project)
+      && r.status !== 'on time' && r.status !== 'pending')
     .sort((a, b) => (b.daysLate || 0) - (a.daysLate || 0))
+  const pendingRows = [...(submission?.rows || [])]
+    .filter((r) => r.month === month && inProject(r.project) && r.status === 'pending')
   const missingCount = lateRows.filter((r) => r.status === 'not received').length
   const lateOnlyCount = lateRows.length - missingCount
   const overallStatus = worstStatus(scopedRows.map((r) => r.status))
-
-  const riskRows = [...withData].sort((a, b) => b.impact - a.impact)
 
   const outcomeTone = overallStatus === 'FINALIZED' ? 'ok'
     : overallStatus === 'READY_FOR_FINALIZATION' ? 'info' : 'bad'
@@ -213,6 +240,9 @@ export default function Home({ state, onNavigate, filterHost }) {
       onAction: () => onNavigate?.('consolidation'),
     },
     {
+      // The headline figure/tone/detail is driven by lateRows only - pendingRows is never a
+      // problem, so it never turns this card red or adds to its count. It is still shown
+      // below, neutrally, once expanded - visible, not alarming.
       id: 'evidence', tone: missingCount ? 'bad' : lateOnlyCount ? 'warn' : 'ok',
       title: 'Evidence status', icon: <IconInbox />, figure: String(lateRows.length),
       detail: lateRows.length
@@ -220,19 +250,50 @@ export default function Home({ state, onNavigate, filterHost }) {
             lateOnlyCount && `${lateOnlyCount} received late`].filter(Boolean).join(', ') + '.'
         : 'All expected evidence has been received on time.',
       clear: !lateRows.length,
-      action: lateRows.length ? (evidenceOpen ? 'Hide details' : 'View details →') : undefined,
+      action: (lateRows.length || pendingRows.length)
+        ? (evidenceOpen ? 'Hide details' : 'View details →') : undefined,
       onAction: () => setEvidenceOpen((o) => !o),
-      expand: evidenceOpen && lateRows.length > 0 && (
+      expand: evidenceOpen && (lateRows.length > 0 || pendingRows.length > 0) && (
         <div className="mini-list" style={{ marginTop: 10 }}>
-          {lateRows.map((r) => (
+          {lateRows.map((r) => {
+            const key = `${r.project}|${r.month}`
+            const st = reminding[key]
+            return (
             <div key={`${r.project}|${r.month}|${r.kind}`}>
               <span>{r.projectName} · {r.label} — {ownerLabel[r.kind]}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Pill tone={SUBMISSION_TONE[r.status]}>{SUBMISSION_LABEL[r.status]}</Pill>
                 <b>{r.status === 'not received' ? '—' : `${r.daysLate}d late`}</b>
+                {/* A "late" row already arrived, just after cut-off - nothing left to chase,
+                    so only a genuinely missing return gets a reminder action. */}
+                {r.status === 'not received' && (
+                  <button type="button" className="btn btn-quiet btn-xs"
+                          disabled={st === 'sending' || st === 'sent'}
+                          title={st && st !== 'sending' && st !== 'sent' ? st : undefined}
+                          onClick={() => sendReminder(r.project, r.month)}>
+                    {st === 'sending' ? 'Sending…'
+                      : st === 'sent' ? 'Sent ✓'
+                      : st ? 'Retry' : 'Remind'}
+                  </button>
+                )}
               </span>
             </div>
-          ))}
+            )
+          })}
+          {pendingRows.length > 0 && (
+            <>
+              <div className="mini-list-note">Not yet due - within the submission window</div>
+              {pendingRows.map((r) => (
+                <div key={`${r.project}|${r.month}|${r.kind}`}>
+                  <span>{r.projectName} · {r.label} — {ownerLabel[r.kind]}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Pill tone={SUBMISSION_TONE.pending}>{SUBMISSION_LABEL.pending}</Pill>
+                    <b>due {r.cutoff}</b>
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       ),
     },
@@ -251,6 +312,9 @@ export default function Home({ state, onNavigate, filterHost }) {
     <>
       {filterHost && createPortal(
         <div className="filter-bar">
+          <FilterChip label="Project" value={proj} onChange={(e) => setProj(e.target.value)}
+                      options={[{ value: 'all', label: 'All projects' },
+                        ...masters.projects.map((p) => ({ value: p.code, label: p.name }))]} />
           <FilterChip label="Month" value={month} onChange={(e) => setMonth(e.target.value)}
                       options={masters.months.map((m) => ({ value: m.key, label: m.label }))} />
         </div>,
@@ -259,18 +323,22 @@ export default function Home({ state, onNavigate, filterHost }) {
 
       <Section label="Portfolio at a glance">
         <Tally label="Portfolio at a glance" items={[
-          { label: 'Total projects', value: masters.projects.length, icon: <IconBuilding /> },
+          { label: 'Total projects', value: scopedProjects.length, icon: <IconBuilding /> },
           { label: 'Contract value', value: compact(portfolio.tender), icon: <IconCoins /> },
           { label: 'Revenue', value: portfolio.revenue === null ? '—' : compact(portfolio.revenue),
             icon: <IconTrendUp /> },
           { label: 'Total cost', value: compact(portfolio.cost), icon: <IconReceipt /> },
           {
-            label: 'Profit / loss',
+            // One word, never both - a loss should never read as "Profit / Loss" with the
+            // reader left to work out which half applies from the colour alone.
+            label: portfolio.profit === null ? 'Profit / Loss'
+              : portfolio.profit < 0 ? '↓ LOSS' : '↑ PROFIT',
             value: portfolio.profit === null ? '—' : compact(portfolio.profit),
             icon: <IconScales />,
             // The one number this whole page exists to answer - bigger, and coloured by sign
-            // rather than reading as just another stat in the row.
-            tone: `big ${portfolio.profit !== null && portfolio.profit < 0 ? 'hot' : 'good'}`,
+            // rather than reading as just another stat in the row. "accent" also colours and
+            // enlarges the PROFIT/LOSS label itself, matching Financial Outcome's own card.
+            tone: `big accent ${portfolio.profit !== null && portfolio.profit < 0 ? 'hot' : 'good'}`,
           },
           { label: 'Margin', value: portfolio.margin === null ? '—' : pct(portfolio.margin),
             icon: <IconPercent /> },
@@ -329,24 +397,6 @@ export default function Home({ state, onNavigate, filterHost }) {
         <div className="grid2">
           {attentionCards.map((c) => <AttentionCard key={c.id} {...c} />)}
         </div>
-      </Section>
-
-      <Section label="Project risk / exceptions" count={{ text: 'sorted by unresolved impact' }}>
-        <Card>
-          <DataTable
-            rows={riskRows}
-            rowKey={(r) => r.code}
-            sortKey="impact" sortDir="desc"
-            empty="No projects match."
-            cols={[
-              { key: 'name', label: 'Project', sortable: false },
-              { key: 'pendingCount', label: 'Pending decisions', num: true },
-              { key: 'impact', label: 'Unresolved impact', num: true, fmt: compact },
-              { key: 'status', label: 'Status', sortable: false,
-                render: (r) => <Pill tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Pill> },
-            ]}
-          />
-        </Card>
       </Section>
 
     </>

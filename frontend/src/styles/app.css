@@ -55,13 +55,74 @@
 .nav-links button[aria-current="page"] .n { background: rgba(255,255,255,.16); color: #fff; }
 .nav-links .n.hot { background: var(--bad-bg); color: var(--bad-fg); }
 
-/* Connection state belongs in the chrome: it explains where the figures came from. */
+/* Connection state belongs in the chrome: it explains where the figures came from. Folded into
+   the Sync button's own tooltip now - see "Decided: a single Sync button" - so this stays only
+   for anything that still wants the dot-plus-label chip shape. */
 .link-state {
   display: flex; align-items: center; gap: 9px;
   padding: 0 16px; min-height: 44px;
   border: 1px solid var(--line); border-radius: var(--r-pill);
   font-size: 13.5px; color: var(--slate); white-space: nowrap;
 }
+
+.sync-status { font-size: 13px; color: var(--slate); white-space: nowrap; }
+
+/* Notification bell - new mail landing in the background, independent of Sync. */
+.bell-wrap { position: relative; }
+.bell {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--surface); color: var(--slate);
+  cursor: pointer;
+}
+.bell:hover { color: var(--ink); background: var(--canvas); }
+.bell-badge {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-pill);
+  background: var(--bad-fg); color: #fff;
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+}
+.bell-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 50;
+  width: 300px; padding: 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card, 14px);
+  box-shadow: var(--lift-2);
+}
+.bell-menu-head { font-size: 13px; font-weight: 650; color: var(--ink); margin-bottom: 8px; }
+.bell-menu-empty { font-size: 13.5px; color: var(--slate); }
+.bell-menu-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+.bell-menu-list li {
+  font-size: 13px; color: var(--ink); line-height: 1.4;
+  padding-bottom: 6px; border-bottom: 1px solid var(--line);
+}
+.bell-menu-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.bell-arrival-main { font-weight: 500; }
+.bell-arrival-sub { font-size: 11.5px; color: var(--slate); margin-top: 2px; }
+.bell-menu .btn { width: 100%; justify-content: center; }
+
+/* "Not received" tag that is also a reminder trigger - hover reveals who it goes to. Portal'd
+   to <body> and positioned in JS from getBoundingClientRect (see RemindTag), not CSS
+   top/left off a relative parent - the table it sits in scrolls internally and would clip an
+   absolutely-positioned popover instead of letting it float free. */
+.remind-hover { position: relative; display: inline-block; cursor: default; }
+.remind-popover {
+  position: fixed; z-index: 300;
+  width: 260px; padding: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card, 14px);
+  box-shadow: var(--lift-2);
+  text-align: left; white-space: normal;
+}
+.remind-popover-head { font-size: 12.5px; font-weight: 650; color: var(--ink); margin-bottom: 8px; }
+.remind-popover-row {
+  display: flex; flex-direction: column; gap: 1px; margin-bottom: 6px; font-size: 12.5px;
+}
+.remind-popover-row span { color: var(--slate); }
+.remind-popover-row b { color: var(--ink); font-weight: 500; }
+.remind-popover-note { font-size: 11px; color: var(--slate); line-height: 1.4; margin: 8px 0 10px; }
 
 @media (max-width: 1180px) {
   .nav { flex-wrap: wrap; padding: 14px 16px; }
@@ -219,26 +280,36 @@
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: var(--s3); }
 @media (max-width: 1180px) { .grid3 { grid-template-columns: minmax(0,1fr); } }
 
-/* Numbers first, label under: the figure is what is being scanned for. */
+/* Numbers first, label under: the figure is what is being scanned for. Every card is a flex
+   column with the label pushed to margin-top:auto, so icon and value stay top-anchored while
+   every label in the row lands on one shared baseline - a "big" card's taller number no longer
+   pushes its own label out of line with its neighbours'. One card shape, reused everywhere a
+   KPI strip appears (Home's portfolio row and Financial Outcome's own summary read identically
+   because they are literally the same component and the same rules, not two designs kept in
+   sync by hand). */
 .tally {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
   gap: 1px; background: var(--hair);
   border: 1px solid var(--hair); border-radius: var(--r-stad); overflow: hidden;
 }
-.tally > div { background: var(--surface); padding: 18px var(--s3) 20px; }
-.tally-icon { display: block; margin-bottom: 10px; color: var(--dust); }
-.tally-icon svg { width: 24px; height: 24px; stroke-width: 2.1; }
+.tally > div {
+  display: flex; flex-direction: column;
+  background: var(--surface); padding: 20px var(--s3) 18px;
+  min-height: 112px;
+}
+.tally-icon { display: block; margin-bottom: 12px; color: var(--dust); }
+.tally-icon svg { width: 22px; height: 22px; stroke-width: 2.1; }
 .tally b {
   display: block; font-family: var(--mono);
-  font-size: 25px; font-weight: 500; line-height: 1.05;
+  font-size: 25px; font-weight: 500; line-height: 1.15;
   letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
 }
 .tally span {
-  display: block; margin-top: 9px;
+  display: block; margin-top: auto; padding-top: 10px;
   font-size: 10.5px; font-weight: 700; letter-spacing: var(--wide);
   text-transform: uppercase; color: var(--slate);
 }
-.tally em { display: block; margin-top: 5px; font-size: 12.5px; font-style: normal; color: var(--dust); }
+.tally em { display: block; margin-top: 4px; font-size: 12.5px; font-style: normal; color: var(--dust); }
 .tally .hot b { color: var(--bad-fg); }
 .tally .warm b { color: var(--warn-fg); }
 .tally .cool b { color: var(--info-fg); }
@@ -246,6 +317,13 @@
 /* The one figure a KPI strip exists to answer reads larger than its neighbours, not the same
    size as "total projects" - weight follows importance, not position in the row. */
 .tally .big b { font-size: 34px; }
+/* Profit/Loss specifically: the arrow-and-word status is meant to be read as clearly as the
+   figure itself, not a quiet caption underneath it - larger, bolder, and coloured to match the
+   number's own sign. Scoped to .accent alone (not .hot/.good generally) so the Status card,
+   which reuses the same tone tokens for its own value colour, keeps its plain label. */
+.tally .accent span { font-size: 12.5px; font-weight: 800; letter-spacing: .03em; }
+.tally .accent.hot span { color: var(--bad-fg); }
+.tally .accent.good span { color: var(--ok-fg); }
 
 /* Current vs Final: two labelled result blocks in one card, not two separate cards - a reader
    should see them as two readings of the same statement, not two different reports. Final gets
@@ -432,6 +510,59 @@ table.data tfoot td.num { font-family: var(--mono); text-align: right; font-vari
 .btn-out .spin, .btn-quiet .spin { border-color: var(--line); border-top-color: var(--ink); }
 @keyframes sp { to { transform: rotate(360deg); } }
 
+/* ── modal: Download's own filter popup, independent of the page's live filter ───────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 250;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(20, 32, 46, .32);
+  animation: modal-fade .15s ease-out;
+}
+.modal-card {
+  width: 400px; max-width: calc(100vw - 32px);
+  padding: 24px;
+  background: var(--surface); border-radius: var(--r-card, 18px);
+  box-shadow: var(--lift-2);
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.modal-head h3 { margin: 0; font-size: 18px; font-weight: 650; color: var(--ink); }
+.modal-close {
+  border: 0; background: none; cursor: pointer;
+  width: 28px; height: 28px; border-radius: var(--r-pill);
+  font-size: 20px; line-height: 1; color: var(--slate);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-close:hover { background: var(--canvas); color: var(--ink); }
+.modal-sub { margin: 8px 0 18px; font-size: 13.5px; color: var(--slate); line-height: 1.5; }
+.modal-filters { display: flex; flex-direction: column; gap: 12px; margin-bottom: 22px; }
+.modal-filters .filter-chip { width: 100%; }
+.modal-filters .filter-chip select { flex: 1; width: 100%; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── corner toasts: reminder-sent confirmation, or anything else worth a quiet ack ────────── */
+.toast-stack {
+  position: fixed; right: 20px; bottom: 20px; z-index: 400;
+  display: flex; flex-direction: column-reverse; gap: 10px;
+  pointer-events: none;
+}
+.toast {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 18px;
+  border-radius: var(--r-card, 12px);
+  background: var(--ink); color: var(--text-invert);
+  font-size: 13.5px; font-weight: 500;
+  box-shadow: var(--lift-2);
+  max-width: 360px;
+  animation: toast-in .18s ease-out;
+}
+.toast-ok::before { content: '✓'; color: #7fe0a0; font-weight: 700; }
+.toast-bad { background: var(--bad-fg); }
+.toast-bad::before { content: '!'; font-weight: 700; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ── outcome readiness ────────────────────────────────────────────────────
    A management-level "why isn't this final" read, deliberately lighter than
    Financial Outcome's tables: text rows, not a data grid. Reuses the
@@ -484,6 +615,10 @@ table.data tfoot td.num { font-family: var(--mono); text-align: right; font-vari
 .mini-list { display: grid; gap: 4px; margin-top: var(--s1); }
 .mini-list div { display: flex; justify-content: space-between; gap: var(--s2); font-size: 13px; color: var(--slate); }
 .mini-list b { font-family: var(--mono); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mini-list-note {
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--slate);
+  margin-top: var(--s2); padding-top: var(--s2); border-top: 1px dashed var(--line);
+}
 
 /* ── home: financial performance chart ────────────────────────────────────
    Three single-metric bars per project, one shared scale - a grouped horizontal bar chart

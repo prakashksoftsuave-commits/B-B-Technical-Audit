@@ -12,7 +12,8 @@ import os
 import threading
 
 from .core import config as C
-from .core import decisions, fabricate, finalization, inbox as IB, mailbox, outcome, tracker, workbook
+from .core import (decisions, fabricate, finalization, inbox as IB, mailbox, outcome, remind,
+                    tracker, workbook)
 
 
 class NotRunYet(RuntimeError):
@@ -118,7 +119,7 @@ def _submission(t_rows, t_sum):
     return {
         "summary": {"expected": t_sum["expected"], "onTime": t_sum["on_time"],
                     "late": t_sum["late"], "missing": t_sum["missing"],
-                    "worstDelay": t_sum["worst_delay"],
+                    "pending": t_sum["pending"], "worstDelay": t_sum["worst_delay"],
                     "chronic": [{"owner": k, "occasions": v}
                                 for k, v in t_sum["chronic"].items()]},
         "rows": [{"month": r["month"], "monthLabel": C.month_label(r["month"]),
@@ -144,7 +145,13 @@ def _reminders(t_rows):
     } for key, label, _f, _t in C.MONTHS]
 
 
-def _outstanding(res):
+def _outstanding(res, t_rows):
+    # outcome.outstanding()'s "chase" items are date-blind - a return not yet due looks
+    # identical to one genuinely overdue. tracker.status() already worked out which is which
+    # (the Pending -> Overdue rule), so a "chase" item is dropped here, not recomputed, if
+    # tracker says that same (project, month, kind) is still merely pending.
+    pending_keys = {(r["project"], r["month"], r["kind"])
+                    for r in t_rows if r["status"] == tracker.PENDING}
     return [{"kind": t["kind"], "project": t["project"],
              "projectName": _pname(t["project"]) if t["project"] else "—",
              "month": t["month"],
@@ -152,7 +159,8 @@ def _outstanding(res):
              "what": t["what"], "detail": t["detail"],
              "amount": None if t["amount"] is None else round(t["amount"]),
              "owner": t["owner"]}
-            for t in res["outstanding"]]
+            for t in res["outstanding"]
+            if (t["project"], t["month"], t.get("input_kind")) not in pending_keys]
 
 
 _MAIL_BREAKDOWN = {"hr_salary": C.SALARY_ROLES, "work_done": C.WORK_CATEGORIES,
@@ -334,7 +342,7 @@ def _build_state(vouchers, source, mail, as_of_date, write_workbook):
     cons = _consolidation(res)
     comparisons = _comparisons(res)
     sub = _submission(t_rows, t_sum)
-    todo = _outstanding(res)
+    todo = _outstanding(res, t_rows)
 
     if write_workbook:
         workbook.write(res, chk, t_rows, t_sum, meta={"ranAt": ran_at})
@@ -356,6 +364,7 @@ def _build_state(vouchers, source, mail, as_of_date, write_workbook):
             "restated": sum(1 for t in todo if t["kind"] == "restated"),
             "expected": sub["summary"]["expected"], "onTime": sub["summary"]["onTime"],
             "late": sub["summary"]["late"], "missing": sub["summary"]["missing"],
+            "pending": sub["summary"]["pending"],
         },
         "consolidation": cons,
         "comparisons": comparisons,
@@ -407,7 +416,9 @@ def run(offline=False, as_of=None, write_workbook=True, fetch_mail=True):
                         "error": f"{type(e).__name__}: {e}"}
 
         vouchers, source = _load_vouchers(offline)
-        as_of_date = dt.date.fromisoformat(as_of) if as_of else dt.date.today()
+        as_of_date = (dt.date.fromisoformat(as_of) if as_of
+                      else dt.date.fromisoformat(C.DEMO_AS_OF) if C.DEMO_AS_OF
+                      else dt.date.today())
         _cached = {"vouchers": vouchers, "source": source, "mail": mail,
                    "as_of_date": as_of_date, "write_workbook": write_workbook}
         return _build_state(vouchers, source, mail, as_of_date, write_workbook)
@@ -519,6 +530,32 @@ def state():
     if _state is None:
         raise NotRunYet("Nothing has been read yet.")
     return _state
+
+
+def send_reminder(project, month, sent_by=None):
+    """Mail one project's site contact everything not yet received for one month.
+
+    Reads the same chase list `_reminders()` already built for the console - never a second
+    computation of what is late or missing. Deliberately excludes anything already marked
+    "late": that item has arrived, just after its cut-off, so there is nothing left to chase -
+    mailing a reminder for something already in hand would confuse the site, not help it.
+    """
+    if _state is None:
+        raise NotRunYet("Nothing has been read yet.")
+    block = next((m for m in _state["reminders"] if m["month"] == month), None)
+    if block is None:
+        raise ValueError(f"unknown month {month!r}")
+    all_items = [c for c in block["chase"] if c["project"] == project]
+    items = [c for c in all_items if c["status"] == tracker.MISSING]
+    if not items:
+        if all_items:
+            raise ValueError(
+                f"nothing to chase for {project} in {C.month_label(month)} - everything has "
+                f"already arrived, just late")
+        raise ValueError(f"nothing outstanding for {project} in {C.month_label(month)}")
+    sent = remind.send(items[0]["to"], items[0]["projectName"], block["monthLabel"],
+                        [c["line"] for c in items], sent_by=sent_by)
+    return {**sent, "project": project, "month": month, "count": len(items)}
 
 
 def selftest():

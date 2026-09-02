@@ -137,8 +137,33 @@ def get_submission():
 
 @app.get("/api/reminders", tags=["report"])
 def get_reminders():
-    """What would be sent, and when. Nothing is sent from here."""
+    """The chase schedule and chase list. GET sends nothing - see POST /api/reminders/send."""
     return _slice("reminders")
+
+
+class ReminderSendIn(BaseModel):
+    project: str
+    month: str
+    sentBy: str = ""
+
+
+@app.post("/api/reminders/send", tags=["pipeline"])
+def post_send_reminder(body: ReminderSendIn):
+    """Mail one project's site contact everything still outstanding for one month.
+
+    One real email, over SMTP, using the same account mailbox.py already reads live returns
+    from. Refuses (404) if that project-month has nothing outstanding, and (502) if the
+    mailbox isn't configured or the send itself fails.
+    """
+    from .core import remind
+    try:
+        return service.send_reminder(body.project, body.month, body.sentBy or None)
+    except service.NotRunYet as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    except remind.ReminderError as e:
+        raise HTTPException(502, str(e)) from e
 
 
 @app.get("/api/adjustments", tags=["report"])

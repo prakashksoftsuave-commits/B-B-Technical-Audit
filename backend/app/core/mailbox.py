@@ -24,10 +24,21 @@ import imaplib
 import json
 import os
 import re
+import threading
 
 from . import config as C
+from . import inbox as IB
 
 FETCH_DIR = os.path.join(C.EMAIL_DIR, "_fetched")
+
+# fetch() reads the dedup record, may spend seconds talking to Gmail, then writes the dedup
+# record back - all unlocked, it used to be. Two overlapping calls (the 45s background poll and
+# the tab-refocus poll can race each other if a tab is switched away and back near the time mail
+# arrives) would both read the same "not yet seen" state before either saved it, so both would
+# independently download and report the same single email as new - one real return, several
+# duplicate arrivals on screen. This lock serialises fetch() so the second of any two overlapping
+# calls always sees what the first one just saved.
+_lock = threading.Lock()
 SEEN_FILE = os.path.join(C.BASE, "fetched_message_ids.json")
 
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -95,9 +106,14 @@ def _filename(msg, n):
 
 
 def fetch(limit=None):
-    """Pull messages from the mailbox into FETCH_DIR.
+    """Pull messages from the mailbox into FETCH_DIR. See `_lock` above for why this holds one -
+    without it, two overlapping calls could each report the same single arrival as new."""
+    with _lock:
+        return _fetch_locked(limit)
 
-    Deduplicates on Message-ID. Without that a re-fetch of the same mail would arrive as a
+
+def _fetch_locked(limit=None):
+    """Deduplicates on Message-ID. Without that a re-fetch of the same mail would arrive as a
     second copy of a return and register as a restatement of itself - harmless to the figures,
     but it would put a phantom item on the Outstanding screen mid-demo.
 
@@ -112,7 +128,7 @@ def fetch(limit=None):
     allowed = allowed_senders()
     seen = _seen()
     os.makedirs(FETCH_DIR, exist_ok=True)
-    fetched, skipped, not_a_return, subjects, failed = 0, 0, [], [], []
+    fetched, skipped, not_a_return, subjects, arrivals, failed = 0, 0, [], [], [], []
 
     try:
         conn = imaplib.IMAP4_SSL(cfg["host"], cfg["port"])
@@ -176,7 +192,20 @@ def fetch(limit=None):
             if mid:
                 seen.add(mid)
             fetched += 1
-            subjects.append((msg.get("Subject") or "").strip())
+            subject = (msg.get("Subject") or "").strip()
+            subjects.append(subject)
+            # Parsed the same way inbox.py itself will parse it once this file is read for
+            # real - so the bell can say what actually arrived (project, return type, month),
+            # not just repeat the raw subject line back.
+            kind = IB._kind(subject)
+            month = IB._month(subject)
+            project = C.resolve_project(subject) or C.resolve_sender(sender)
+            arrivals.append({
+                "subject": subject,
+                "project": project["tally"] if project else None,
+                "kind": C.INPUT_LABEL.get(kind, kind),
+                "month": C.month_label(month) if month else None,
+            })
       except imaplib.IMAP4.error as e:
         # includes IMAP4.abort. Whatever the mailbox did, it must not surface as an
         # unhandled exception - the caller decides whether a mail failure matters.
@@ -192,7 +221,7 @@ def fetch(limit=None):
             "ignored": len(not_a_return), "ignoredFrom": sorted(set(not_a_return)),
             "failed": len(failed), "failedDetail": failed,
             "total": len(uids), "mailbox": cfg["user"], "folder": cfg["folder"],
-            "subjects": subjects}
+            "subjects": subjects, "arrivals": arrivals}
 
 
 def forget():

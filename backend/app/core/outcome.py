@@ -286,7 +286,7 @@ def outstanding(rows, compare_rows, unattributed, superseded, unroutable):
                     "amount": diff, "owner": "Technical Audit"})
         for kind in r["returns_missing"]:
             out.append({
-                "kind": "chase", "project": code, "month": month,
+                "kind": "chase", "input_kind": kind, "project": code, "month": month,
                 "what": f"{C.INPUT_LABEL[kind]} not received",
                 "detail": "Not received, so its figures are absent from the "
                           "consolidation.",

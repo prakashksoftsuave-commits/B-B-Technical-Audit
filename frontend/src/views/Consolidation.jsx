@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api'
 import DataTable from '../components/DataTable'
@@ -244,8 +244,90 @@ function decisionPill(line) {
   return <Pill tone="info">{label}</Pill>
 }
 
-function ItemTable({ project, month, cons, pos, masters, lineage, onDecide, busy }) {
+// A "Not received" tag that is also the reminder action - hover it, and a popover names who
+// it goes to and what for, with a Remind button right there. One send still covers everything
+// outstanding for that project-month (service.send_reminder's own batching), not just this one
+// line, so the popover says so rather than implying a narrower scope than what actually fires.
+//
+// Portal'd to <body> and positioned from the trigger's own getBoundingClientRect, not CSS
+// top/left on a relatively-positioned parent - the table this sits in scrolls internally, and
+// an absolutely-positioned popover would just get clipped by that, not float free the way a
+// hover card should. Position is recomputed after the popover itself has a size, then nudged
+// back on screen if it would run off the right edge or the bottom.
+function RemindTag({ owner, item, projectName, monthLabel, project, month, onToast }) {
+  const [open, setOpen] = useState(false)
+  const [st, setSt] = useState(null)
+  const [pos, setPos] = useState(null)
+  const triggerRef = useRef(null)
+  const popRef = useRef(null)
+  const closeTimer = useRef(null)
+
+  const openNow = () => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
+    setOpen(true)
+  }
+  const closeSoon = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 150)
+  }
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current) }, [])
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return
+    const t = triggerRef.current.getBoundingClientRect()
+    const pw = popRef.current?.offsetWidth || 260
+    const ph = popRef.current?.offsetHeight || 150
+    const margin = 12
+    let left = t.left
+    let top = t.bottom + 8
+    if (left + pw > window.innerWidth - margin) left = window.innerWidth - pw - margin
+    if (left < margin) left = margin
+    if (top + ph > window.innerHeight - margin) top = t.top - ph - 8
+    if (top < margin) top = margin
+    setPos({ top, left })
+  }, [open, st])
+
+  async function send() {
+    setSt('sending')
+    try {
+      const res = await api.sendReminder(project, month, 'Audit Lead')
+      setSt('sent')
+      onToast?.(`Reminder sent to ${res.to}`)
+    } catch (e) {
+      setSt(e.message || 'Send failed')
+      onToast?.(e.message || 'Reminder failed to send', 'bad')
+    }
+  }
+
+  return (
+    <span className="remind-hover" ref={triggerRef} onMouseEnter={openNow} onMouseLeave={closeSoon}>
+      <Pill tone="bad">Not received</Pill>
+      {open && createPortal(
+        <div className="remind-popover" ref={popRef}
+             style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999,
+               visibility: pos ? 'visible' : 'hidden' }}
+             onMouseEnter={openNow} onMouseLeave={closeSoon}>
+          <div className="remind-popover-head">Send reminder</div>
+          <div className="remind-popover-row"><span>To</span><b>{owner}</b></div>
+          <div className="remind-popover-row"><span>For</span><b>{item} · {projectName} ({monthLabel})</b></div>
+          <div className="remind-popover-note">
+            Covers everything still outstanding for {projectName} this month, not just this line.
+          </div>
+          <button type="button" className="btn btn-ink btn-xs" style={{ width: '100%', justifyContent: 'center' }}
+                  disabled={st === 'sending' || st === 'sent'} onClick={send}>
+            {st === 'sending' ? 'Sending…' : st === 'sent' ? 'Sent ✓' : st ? 'Retry' : 'Remind'}
+          </button>
+        </div>,
+        document.body,
+      )}
+    </span>
+  )
+}
+
+function ItemTable({ project, month, cons, pos, masters, lineage, siteMailbox, onDecide, busy,
+                      onToast }) {
   const lineLabel = Object.fromEntries(masters.lines.map((l) => [l.key, l.label]))
+  const projectName = masters.projects.find((p) => p.code === project)?.name || project
+  const monthLabel = masters.months.find((m) => m.key === month)?.label || month
 
   const [open, setOpen] = useState(() => new Set())
   const toggle = (key) => setOpen((prev) => {
@@ -414,14 +496,22 @@ function ItemTable({ project, month, cons, pos, masters, lineage, onDecide, busy
           render: (r) => {
             if (r._drill) return null
             if (r.kind === 'mail') {
-              if (r.missing) return <Pill tone="bad">Not received</Pill>
+              if (r.missing) {
+                return <RemindTag owner={siteMailbox || r.owner} item={r.item} projectName={projectName}
+                                   monthLabel={monthLabel} project={project} month={month}
+                                   onToast={onToast} />
+              }
               if (r.restated) return <Pill tone="info">Restated</Pill>
               return <Pill tone="ok">Reported</Pill>
             }
             if (r.kind === 'adj') return <Pill tone={TONE[r.adjKind] || 'info'}>{r.reason}</Pill>
             if (r.kind === 'derived') return <Pill tone="info">Computed</Pill>
             if (r.kind === 'total-cost') return <Pill tone={r.final ? 'ok' : 'warn'}>{r.final ? 'Final' : 'Current'}</Pill>
-            if (r.kind === 'salary' && r.missing) return <Pill tone="bad">Not received</Pill>
+            if (r.kind === 'salary' && r.missing) {
+              return <RemindTag owner={siteMailbox || r.owner} item={r.item} projectName={projectName}
+                                 monthLabel={monthLabel} project={project} month={month}
+                                 onToast={onToast} />
+            }
             return decisionPill(r)
           },
         },
@@ -498,19 +588,25 @@ function aggregate(rows, key) {
   return nums.some((v) => v === null || v === undefined) ? null : nums.reduce((s, v) => s + v, 0)
 }
 
-export default function Consolidation({ state, onStateChange, onFilterChange, filterHost,
-                                         navFocus, onNavigate }) {
-  const { consolidation, masters, position, cumulative, poc, lineage, unattributed, outstanding } = state
+export default function Consolidation({ state, onStateChange, filterHost,
+                                         navFocus, onNavigate, onToast }) {
+  const { consolidation, masters, position, cumulative, poc, lineage, unattributed, outstanding,
+          submission } = state
   const latest = masters.months.at(-1).key
+  // Reminders go to the site's own mailbox (one per project, every kind), not the role label
+  // masters.inputs carries ("Formwork department" etc.) - submission.rows already resolved the
+  // real address per tracker.py's own CONTRIBUTORS lookup, so read it back rather than guessing.
+  const siteMailbox = useMemo(() => {
+    const map = {}
+    for (const r of submission?.rows || []) if (!map[r.project]) map[r.project] = r.owner
+    return map
+  }, [submission])
   const [proj, setProj] = useState(() => navFocus?.project || 'all')
   const [month, setMonth] = useState(() => navFocus?.month || latest)
   const [busyKeys, setBusyKeys] = useState(() => new Set())
   const [busyAction, setBusyAction] = useState(false)
   const [finalizeAllResult, setFinalizeAllResult] = useState(null)
 
-  // The Excel download button lives in the nav rail, outside this view - it reports its
-  // filter out so that button can request a workbook scoped to what's on screen.
-  useEffect(() => { onFilterChange?.(proj, month) }, [proj, month, onFilterChange])
   useEffect(() => { setFinalizeAllResult(null) }, [month])
 
   const decide = async (project, mk, line, choice) => {
@@ -634,9 +730,12 @@ export default function Consolidation({ state, onStateChange, onFilterChange, fi
             icon: <IconTrendUp /> },
           { label: 'Cost', value: compact(kpiCost), icon: <IconReceipt /> },
           {
-            label: 'Profit / loss', value: kpiProfit === null ? '—' : compact(kpiProfit),
+            // Same rule as Home's portfolio card: one word, never both, so a loss never reads
+            // as "Profit / Loss" with the sign left for the reader to infer from colour alone.
+            label: kpiProfit === null ? 'Profit / Loss' : kpiProfit < 0 ? '↓ LOSS' : '↑ PROFIT',
+            value: kpiProfit === null ? '—' : compact(kpiProfit),
             icon: <IconScales />,
-            tone: `big ${kpiProfit !== null && kpiProfit < 0 ? 'hot' : 'good'}`,
+            tone: `big accent ${kpiProfit !== null && kpiProfit < 0 ? 'hot' : 'good'}`,
           },
           { label: 'Margin', value: kpiMargin === null ? '—' : pct(kpiMargin), icon: <IconPercent /> },
           { label: 'Status', value: STATUS_LABEL[hero.status] || hero.status,
@@ -654,7 +753,7 @@ export default function Consolidation({ state, onStateChange, onFilterChange, fi
             <ProjectSummaryTable
               rows={heroRows} consolidation={consolidation}
               position={position} masters={masters} lineage={lineage} busyKeys={busyKeys}
-              decide={decide} month={month}
+              decide={decide} month={month} siteMailbox={siteMailbox} onToast={onToast}
               finalize={finalize} reopen={reopen} busyAction={busyAction}
             />
             {month !== 'all' && (() => {
@@ -737,6 +836,7 @@ export default function Consolidation({ state, onStateChange, onFilterChange, fi
                 <ItemTable
                   project={pos.project} month={pos.month}
                   cons={cons} pos={pos} masters={masters} lineage={lineage}
+                  siteMailbox={siteMailbox[pos.project]} onToast={onToast}
                   busy={new Set([...busyKeys].filter((k) => k.startsWith(`${pos.project}|${pos.month}|`))
                     .map((k) => k.split('|')[2]))}
                   onDecide={(line, choice) => decide(pos.project, pos.month, line, choice)}
@@ -824,8 +924,8 @@ export default function Consolidation({ state, onStateChange, onFilterChange, fi
 
 // ---------------------------------------------------------------------------- project summary
 
-function ProjectSummaryTable({ rows, consolidation, position, masters, lineage,
-                                busyKeys, decide, month, finalize, reopen, busyAction }) {
+function ProjectSummaryTable({ rows, consolidation, position, masters, lineage, siteMailbox,
+                                busyKeys, decide, month, finalize, reopen, busyAction, onToast }) {
   const [open, setOpen] = useState(() => new Set())
   const toggle = (project) => setOpen((prev) => {
     const next = new Set(prev)
@@ -853,6 +953,7 @@ function ProjectSummaryTable({ rows, consolidation, position, masters, lineage,
             <ItemTable
               project={pos.project} month={pos.month}
               cons={cons} pos={pos} masters={masters} lineage={lineage}
+              siteMailbox={siteMailbox[pos.project]} onToast={onToast}
               busy={new Set([...busyKeys].filter((k) => k.startsWith(`${pos.project}|${pos.month}|`))
                 .map((k) => k.split('|')[2]))}
               onDecide={(line, choice) => decide(pos.project, pos.month, line, choice)}

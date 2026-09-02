@@ -61,3 +61,7 @@ export const IconBuilding = (p) => (
 export const IconCheck = (p) => (
   <svg {...s(p)}><path d="M4 12.5l5 5L20 6" /></svg>
 )
+export const IconBell = (p) => (
+  <svg {...s(p)}><path d="M6 10a6 6 0 0112 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6z" />
+    <path d="M10 20a2 2 0 004 0" /></svg>
+)
