@@ -97,13 +97,19 @@ def post_mail_fetch():
     """Pull new returns from the mailbox without rebuilding the report.
 
     This is the background poll's endpoint (App.jsx fires it every 45s regardless of whether
-    the last call finished). wait=False so an overlapping poll skips instead of queuing behind
-    an in-progress fetch - Sync (service.run(), a separate call into mailbox.fetch()) is the
-    one path that must always actually wait and run.
+    the last call finished, and on every tab with the console open - several tabs during a
+    rehearsal all poll independently). Reverted to the default wait=True: a mail arrival is a
+    global, one-time event (whoever's request actually runs the fetch first is the only one
+    that ever sees fetched > 0), so a poll that skips itself when "busy" can permanently miss a
+    real notification if a different tab's poll happened to win that race moments earlier -
+    found live, during a multi-tab demo rehearsal. The header-batching fix already brought a
+    real fetch down to a few seconds, so the worst case here is now a short wait, not the
+    multi-minute pileup wait=False was originally added to prevent - correctness (never
+    silently swallowing a real arrival) matters more than shaving that off.
     """
     from .core import mailbox
     try:
-        return mailbox.fetch(wait=False)
+        return mailbox.fetch()
     except mailbox.MailboxError as e:
         raise HTTPException(502, str(e)) from e
 

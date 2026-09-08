@@ -105,25 +105,19 @@ def _filename(msg, n):
     return f"{stamp}_{_SAFE.sub('-', mid)[:80]}.eml"
 
 
-def fetch(limit=None, wait=True):
+def fetch(limit=None):
     """Pull messages from the mailbox into FETCH_DIR. See `_lock` above for why this holds one -
     without it, two overlapping calls could each report the same single arrival as new.
 
-    `wait=False` is for the background poll only: it does not queue behind an in-progress
-    fetch, it skips this cycle outright. The poll fires every 45s regardless of whether the
-    last one finished (App.jsx's setInterval) - without this, a slow IMAP round trip left
-    several polls queued up one behind another, each waiting its full turn, and a person
-    clicking Sync landed at the back of that queue instead of behind at most one real fetch.
-    Sync itself always calls with the default `wait=True` - it must actually run, never skip.
+    Always waits its turn rather than skipping when another fetch is already running. A mail
+    arrival is a global, one-time event - whichever request actually runs the fetch first is the
+    only one that ever sees fetched > 0 - so a caller that skips itself when "busy" (tried once,
+    for the background poll specifically) can permanently miss a real notification if a
+    different poll/tab happened to win that race moments earlier. Found live during a multi-tab
+    demo rehearsal. The header-batching fix in _fetch_locked already brought a real fetch down
+    to a few seconds, so waiting here costs little - far less than silently swallowing an
+    arrival ever would.
     """
-    if not wait:
-        if not _lock.acquire(blocking=False):
-            return {"configured": True, "fetched": 0, "skipped": 0, "total": 0,
-                    "busy": True, "note": "a fetch is already in progress - skipped this poll"}
-        try:
-            return _fetch_locked(limit)
-        finally:
-            _lock.release()
     with _lock:
         return _fetch_locked(limit)
 
