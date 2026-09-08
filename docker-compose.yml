@@ -1,0 +1,16 @@
+services:
+  bb-tech-audit:
+    build: .
+    container_name: bb-tech-audit
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    volumes:
+      # .env (mailbox credentials) and data/ (the generated dataset — erp.db,
+      # inbox/, ground_truth.json, snapshot, the .xlsx export) are runtime
+      # state, not image content, so a rebuild/redeploy never touches them.
+      # .env must exist as a *file* on the host before the first `up`, or
+      # Docker will create a directory at that path instead:
+      #   touch .env
+      - ./.env:/app/.env
+      - ./data:/app/data
