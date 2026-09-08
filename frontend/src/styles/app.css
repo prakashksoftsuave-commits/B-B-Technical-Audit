@@ -29,8 +29,17 @@
 }
 .nav .spacer { flex: 1; }
 
-.brand { font-size: 21px; font-weight: 600; letter-spacing: var(--tight); white-space: nowrap; }
+.brand {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-size: 21px; font-weight: 600; letter-spacing: var(--tight); white-space: nowrap;
+}
 .brand i { font-style: normal; color: var(--clay); }
+.brand-mark {
+  flex: none; width: 30px; height: 30px; border-radius: var(--r-btn);
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.brand-mark svg { width: 17px; height: 17px; stroke-width: 2.3; }
 
 .nav-links { display: flex; gap: 4px; flex-wrap: wrap; }
 .nav-links button {
@@ -42,7 +51,11 @@
   cursor: pointer; white-space: nowrap;
 }
 .nav-links button:hover { color: var(--ink); background: var(--canvas); }
-.nav-links button[aria-current="page"] { background: var(--ink); color: var(--text-invert); }
+/* A tinted pill, not a solid block - reads as "the selected tab" without the heavier, almost-
+   button weight a solid ink fill carries at this size. */
+.nav-links button[aria-current="page"] {
+  background: rgba(47, 85, 120, .12); color: var(--accent); font-weight: 650;
+}
 /* Financial Outcome is the main product - a touch heavier even at rest, not a badge or a
    colour, so it reads as "the primary page" rather than "something needs attention". */
 .nav-links button.nav-primary:not([aria-current="page"]) { font-weight: 650; color: var(--ink); }
@@ -52,7 +65,7 @@
   padding: 1px 7px; border-radius: var(--r-pill);
   background: var(--sunken); color: var(--slate);
 }
-.nav-links button[aria-current="page"] .n { background: rgba(255,255,255,.16); color: #fff; }
+.nav-links button[aria-current="page"] .n { background: var(--accent); color: #fff; }
 .nav-links .n.hot { background: var(--bad-bg); color: var(--bad-fg); }
 
 /* Connection state belongs in the chrome: it explains where the figures came from. Folded into
@@ -78,6 +91,7 @@
   cursor: pointer;
 }
 .bell:hover { color: var(--ink); background: var(--canvas); }
+
 .bell-badge {
   position: absolute; top: -4px; right: -4px;
   min-width: 18px; height: 18px; padding: 0 4px;
@@ -104,6 +118,7 @@
 .bell-arrival-sub { font-size: 11.5px; color: var(--slate); margin-top: 2px; }
 .bell-menu .btn { width: 100%; justify-content: center; }
 
+/* Decorative user chip - see App.jsx's comment: no login, no switching, just chrome. */
 /* "Not received" tag that is also a reminder trigger - hover reveals who it goes to. Portal'd
    to <body> and positioned in JS from getBoundingClientRect (see RemindTag), not CSS
    top/left off a relative parent - the table it sits in scrolls internally and would clip an
@@ -139,6 +154,14 @@
 .section-head {
   display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
   margin-bottom: var(--s3);
+  /* 40px (.btn-sm's own min-height) + 14px padding-bottom + 1px border-bottom below (see
+     :has(.eyebrow) beneath) = 55px total under border-box sizing - measured with Playwright,
+     not guessed: a header with a `right` action button (Projects Performance's "View full
+     report") naturally renders at exactly this height, so a plain-text header (Alerts & Status
+     has no button) has to reserve the same 55px, not just some arbitrary smaller minimum, for
+     both labels' text to land on the same line once centred. An earlier min-height: 40px only
+     covered the button's own height, missing the padding/border under it. */
+  min-height: 55px;
 }
 .section-head .spacer { flex: 1; }
 .section-head:has(.eyebrow) {
@@ -183,6 +206,45 @@
 .btn-sm { min-height: 40px; padding: 0 18px; font-size: 14.5px; }
 .btn-xs { min-height: 26px; padding: 0 10px; font-size: 12.5px; gap: 5px; }
 .decide-row { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* ── compact auditor-action column (Financial Outcome's reconciliation table) ─────────────
+   The approve buttons shrink to a two-line pill (choice on top, amount under) instead of a
+   full sentence, so a row with two live choices doesn't dominate the table's width. Tracing a
+   line's source records is triggered from the item name itself (see .row-toggle below), not a
+   separate button in this column. */
+.action-cell { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Source Data's own "View" column (DataItemTable) - a plain eye icon, unrelated to the
+   expand-toggle caret below. */
+.row-eye {
+  flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--surface); color: var(--slate); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.row-eye:hover { background: var(--hover); color: var(--ink); }
+.row-eye[aria-expanded="true"] { background: rgba(47, 85, 120, .12); color: var(--accent); border-color: var(--accent); }
+.row-eye svg { width: 15px; height: 15px; stroke-width: 2; }
+/* An item name or a consolidated amount that opens the evidence drawer - same tabular numerals
+   and right-alignment its plain-text sibling cells already have (inherited from the td), just
+   coloured and clickable. */
+.link-btn {
+  background: none; border: none; padding: 0; margin: 0; font: inherit; color: var(--accent);
+  cursor: pointer; text-align: inherit; width: 100%;
+}
+.link-btn:hover { text-decoration: underline; }
+.decide-row-compact { gap: 6px; }
+.btn-compact {
+  display: inline-flex; flex-direction: column; align-items: center; gap: 1px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  border-radius: var(--r-btn); padding: 4px 10px; font-size: 11px; font-weight: 600;
+  letter-spacing: var(--wide); text-transform: uppercase; cursor: pointer; line-height: 1.3;
+}
+.btn-compact b {
+  font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0;
+  text-transform: none; color: inherit;
+}
+.btn-compact.chosen { background: var(--ok-fg); border-color: var(--ok-fg); color: #fff; }
+.btn-compact.undo { border-style: dashed; color: var(--slate); font-weight: 500; text-transform: none; }
+.btn-compact:disabled { opacity: .45; cursor: not-allowed; }
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 
@@ -232,6 +294,11 @@
   font: inherit; font-size: 14.5px; font-weight: 500;
   min-height: 40px; padding: 0 22px 0 2px;
   appearance: none;
+  /* Without a cap, a native <select> sizes its closed box to the WIDEST option in the list
+     (e.g. a long project name), not the currently selected one - so picking "All projects"
+     left a large empty gap before the dropdown arrow. max-width plus ellipsis keeps the chip
+     hugging whatever is actually selected, truncating only the rare very long name. */
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7'><path d='M0 0l5 6 5-6z' fill='%236b7887'/></svg>");
   background-repeat: no-repeat; background-position: right 2px center;
 }
@@ -252,6 +319,149 @@
 .s-warn { background: var(--warn-bg); color: var(--warn-fg); }
 .s-bad  { background: var(--bad-bg);  color: var(--bad-fg); }
 .s-mute { background: var(--sunken);  color: var(--clay); }
+
+/* ── segmented tabs (Financial Outcome's per-project reconciliation panel) ──────────────── */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: var(--s3); }
+.tab {
+  appearance: none; background: transparent; border: none; cursor: pointer;
+  padding: 9px 4px; margin-bottom: -1px; border-bottom: 2px solid transparent;
+  font-size: 13.5px; font-weight: 500; color: var(--slate); white-space: nowrap;
+  display: flex; align-items: center; gap: 6px;
+}
+.tab + .tab { margin-left: 14px; }
+.tab:hover { color: var(--ink); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tab-count {
+  font-family: var(--mono); font-size: 11px; color: var(--slate); background: var(--sunken);
+  border-radius: var(--r-pill); padding: 1px 7px;
+}
+.tab.active .tab-count { color: var(--accent); background: rgba(47, 85, 120, .12); }
+
+/* ── table/chart view toggle (Financial Outcome's Project outcomes section) ───────────────── */
+.view-toggle { display: flex; border: 1px solid var(--line); border-radius: var(--r-btn); overflow: hidden; }
+.view-toggle button {
+  appearance: none; background: var(--surface); border: none; cursor: pointer;
+  width: 34px; height: 30px; display: flex; align-items: center; justify-content: center;
+  color: var(--slate);
+}
+.view-toggle button + button { border-left: 1px solid var(--line); }
+.view-toggle button svg { width: 15px; height: 15px; stroke-width: 2; }
+.view-toggle button.active { background: rgba(47, 85, 120, .12); color: var(--accent); }
+
+/* ── reconciliation panel: stat strip (Financial Outcome's per-project expand) ────────────── */
+.recon-panel { margin-top: var(--s3); }
+.recon-stats {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s4);
+  padding-bottom: var(--s3); margin-bottom: var(--s3); border-bottom: 1px solid var(--line);
+}
+.recon-stat { display: flex; flex-direction: column; gap: 2px; }
+.recon-stat b { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--ink); }
+.recon-stat span { font-size: 12px; color: var(--slate); }
+.recon-stat.total b { color: var(--accent); }
+.recon-pending {
+  margin-left: auto; display: flex; align-items: center; gap: 10px;
+  background: var(--warn-tint); border: 1px solid var(--warn-fg); border-radius: var(--r-btn);
+  padding: 8px 14px; font-size: 13px; color: var(--ink);
+}
+.recon-pending b { font-family: var(--mono); }
+
+/* ── single-project Financial Outcome page ─────────────────────────────────────────────── */
+.project-back {
+  display: inline-flex; align-items: center; gap: 6px; border: none; background: none;
+  padding: 0; margin-bottom: var(--s2); font-size: 13.5px; color: var(--slate); cursor: pointer;
+}
+.project-back:hover { color: var(--accent); }
+.project-back svg { width: 14px; height: 14px; stroke-width: 2.3; }
+.project-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s3);
+  flex-wrap: wrap;
+}
+.project-header h1 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: var(--tight); }
+.project-header-meta {
+  display: flex; align-items: center; gap: 10px; margin-top: 6px;
+  font-size: 13.5px; color: var(--slate);
+}
+.project-settings-btn { flex: none; }
+
+/* 40% financial summary / 60% outcome status, per the division's own read of this card - the
+   summary is a fixed-shape label/value list that never needs more room, so giving the donut +
+   legend the wider share is what actually fills the card instead of leaving it stranded in a
+   half-width column with dead space on both sides. */
+.summary-donut-row {
+  display: grid; grid-template-columns: 2fr 3fr; gap: var(--s5); align-items: stretch;
+  margin-top: var(--s4);
+}
+@media (max-width: 900px) { .summary-donut-row { grid-template-columns: 1fr; } }
+/* A little inset from the card's own left edge, and a real cap rather than hugging the grid
+   column's full (often much wider) width - a two-column label/value list stretched edge to edge
+   just reads as sparse, not more informative. */
+.summary-waterfall { max-width: 520px; width: 100%; padding-left: var(--s3); }
+@media (max-width: 900px) { .summary-waterfall { padding-left: 0; } }
+
+/* Centred, not space-between - the whole point of this pass was to stop the donut+legend
+   clustering awkwardly against one edge of a column as tall as the waterfall beside it. One
+   consistent gap between every piece (title, donut+legend, hint, pending-approval) reads as a
+   single deliberate block, vertically centred in the space the taller left column defines. */
+.audit-overview {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--s3); height: 100%; text-align: center;
+}
+.audit-overview-body { display: flex; align-items: center; justify-content: center; gap: var(--s5); width: 100%; }
+.audit-overview-hint { font-size: 12px; color: var(--dust); }
+.audit-overview-hint .link-btn { font-size: inherit; }
+/* .recon-pending's own margin-left:auto is for the horizontal stat-strip context (pushes it to
+   that row's right edge) - here the parent is a centred column, so it's reset to sit with
+   everything else instead of fighting align-items and drifting off to one side. */
+.audit-overview-pending { margin-left: 0; }
+
+/* The legend: a real colour dot per status (not just a hover-only rule), a 2-up grid so it reads
+   as one balanced block beside the donut rather than a tall single column - each item is still
+   the same filter toggle the donut segments are, so clicking either one does the same thing. */
+.audit-overview-legend {
+  display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 8px 24px; text-align: left;
+}
+.legend-item {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  border: none; background: none; padding: 10px 12px; margin: 0; cursor: pointer;
+  border-radius: var(--r-btn); font: inherit; text-align: left;
+  transition: opacity .12s ease, background-color .12s ease;
+}
+.legend-item:hover { background: var(--hover); }
+.legend-item.active { background: var(--sunken); }
+.legend-item.dimmed { opacity: .4; }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; background: var(--stat-color); }
+.legend-label { font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend-count { margin-left: auto; font-family: var(--mono); font-size: 17px; font-weight: 650; color: var(--ink); flex: none; }
+.legend-item.active .legend-count { color: var(--stat-color); }
+
+.status-filter-clear {
+  border: none; background: none; cursor: pointer; color: var(--accent); font-weight: 600;
+  font-size: inherit; padding: 0; display: inline-flex; align-items: center; gap: 2px;
+}
+.status-filter-clear:hover { text-decoration: underline; }
+
+/* A compact, dismissible strip above the (now filtered) table - the second, more prominent place
+   the active filter is stated, beside the tab label's own "(N)" suffix. */
+.filter-indicator {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+  background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r-btn);
+  padding: 8px 12px; margin: var(--s2) 0; font-size: 13px; color: var(--ink);
+}
+.filter-indicator button {
+  border: none; background: none; cursor: pointer; color: var(--slate); font-size: 16px;
+  line-height: 1; padding: 0 2px;
+}
+.filter-indicator button:hover { color: var(--ink); }
+
+.status-donut { position: relative; flex: none; }
+.status-donut-center {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; pointer-events: none;
+}
+.status-donut-center b { font-family: var(--mono); font-size: 34px; font-weight: 650; color: var(--ink); }
+.status-donut-center span { font-size: 12px; color: var(--slate); }
+.donut-segment { cursor: pointer; }
+.donut-segment:hover { opacity: .82; }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; }
 .d-ok { background: var(--ok-fg); }
@@ -396,6 +606,11 @@ table.stmt-t td.t-warn { color: var(--warn-fg); }
 .waterfall-row.total { font-weight: 700; border-bottom: none; border-top: 1.5px solid var(--ink); }
 .waterfall-row.t-warn { color: var(--warn-fg); }
 .waterfall-row.t-warn b { color: var(--warn-fg); }
+/* One notch under .total's border-top-and-bold treatment - Profit Margin sits right under
+   Current Profit and deserves to read heavier than a plain cost line, but three consecutive
+   ruled rows would be visual noise, not emphasis. */
+.waterfall-row.emphasis { font-weight: 650; }
+.waterfall-row.emphasis b { font-size: 15.5px; }
 
 .dim-note { font-size: 13.5px; color: var(--slate); margin: 0; }
 
@@ -442,23 +657,57 @@ table.data tfoot td {
   border-top: 1.5px solid var(--ink); background: var(--sunken);
 }
 table.data tfoot td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+/* A cycling left-accent per row, for a table where every row is its own project and a quick
+   visual anchor down the left edge helps more than yet another column would. Decorative only -
+   the colour carries no meaning of its own, unlike a status pill. */
+table.data tbody tr.row-accent-0 td:first-child { border-left: 3px solid var(--accent); padding-left: 15px; }
+table.data tbody tr.row-accent-1 td:first-child { border-left: 3px solid var(--ok-fg); padding-left: 15px; }
+table.data tbody tr.row-accent-2 td:first-child { border-left: 3px solid var(--warn-fg); padding-left: 15px; }
 .neg { color: var(--signal); }
 .row-total td { font-weight: 700; background: var(--sunken); border-top: 1.5px solid var(--ink); }
 .row-flag td { background: var(--warn-tint); }
 .row-child td { background: var(--hover); }
 .row-child td.wrap { color: var(--slate); }
 .child-item { padding-left: 22px; color: var(--slate); }
+/* A drilled-down mail record that has a real attachment - the same "view the file" action
+   Source Data's evidence drawer offers, reached directly since this row already is one specific
+   source record (no intermediate list to pick from first). */
+.child-item-link {
+  background: none; border: none; padding: 0; margin: 0; font: inherit; text-align: left;
+  cursor: pointer; padding-left: 22px; color: var(--slate);
+}
+.child-item-link:hover { color: var(--ink); text-decoration: underline; }
 .row-toggle {
   background: none; border: none; padding: 0; margin: 0; cursor: pointer;
   font: inherit; color: inherit; text-align: left; display: inline-flex;
-  align-items: baseline; gap: 8px;
+  align-items: center; gap: 6px;
 }
+/* Scoped to .row-toggle specifically - .caret is also the class name for the unrelated
+   sort-direction arrow in table headers (DataTable.jsx), which must not pick up this sizing/
+   weight. A real, legible ">" here instead of the previous small pale triangle (10px, slate,
+   easy to miss entirely at a glance) - bold and ink-coloured so it reads as an actual expand
+   control, right next to the item/project name it expands - project rows, and now every
+   traceable reconciliation line, both use this one trigger. */
 .row-toggle .caret {
-  display: inline-block; font-size: 10px; color: var(--slate);
-  transition: transform 0.12s ease;
+  display: inline-block; font-size: 15px; font-weight: 800; color: var(--ink);
+  line-height: 1; transition: transform 0.15s ease;
 }
 .row-toggle .caret.open { transform: rotate(90deg); }
 .row-section td { padding: 10px 18px; background: var(--sunken); }
+
+/* ── Source Data: roomier tables, and a drill-down that visibly reads as one level deeper ──
+   Scoped to this one page (not table.data / .row-section generally) so Financial Outcome's
+   own tables - sharing the same base classes - are untouched. */
+.source-data-page table.data { font-size: 15px; }
+.source-data-page table.data thead th .th-label { padding: 13px 20px; }
+.source-data-page table.data tbody td { padding: 15px 20px; }
+.source-data-page .row-section td { padding: 22px 24px; background: var(--canvas); }
+.nested-items-block + .nested-items-block { margin-top: var(--s4); }
+.nested-items-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-btn);
+  box-shadow: var(--lift-1); overflow: hidden;
+}
+.nested-items-card table.data tbody td { padding: 13px 20px; }
 .section-banner {
   font-size: 10.5px; font-weight: 700; letter-spacing: var(--wide); text-transform: uppercase;
   color: var(--slate);
@@ -471,7 +720,7 @@ table.data tfoot td.num { font-family: var(--mono); text-align: right; font-vari
 .bar { display: grid; grid-template-columns: 190px 1fr 92px; align-items: center; gap: 14px; }
 .bar .lab { font-size: 14px; color: var(--charcoal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar .track { height: 18px; background: var(--sunken); border-radius: var(--r-chip); overflow: hidden; display: flex; }
-.bar .track i { display: block; height: 100%; }
+.bar .track i { display: block; height: 100%; transition: width .8s cubic-bezier(.16, 1, .3, 1); }
 .bar .val { font-family: var(--mono); font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) { .bar { grid-template-columns: 120px 1fr 78px; } }
 
@@ -495,8 +744,13 @@ table.data tfoot td.num { font-family: var(--mono); text-align: right; font-vari
 }
 
 .banner { padding: var(--s2) var(--s3); border-radius: var(--r-btn); font-size: 14.5px; }
-.banner-err { background: var(--bad-bg); color: var(--bad-fg); }
-.banner-ok  { background: var(--ok-bg);  color: var(--ok-fg); }
+.banner-err  { background: var(--bad-bg);  color: var(--bad-fg); }
+.banner-ok   { background: var(--ok-bg);   color: var(--ok-fg); }
+.banner-info { background: var(--info-bg); color: var(--info-fg); }
+/* A restrained audit warning, not an error - a line still needing a decision isn't a fault in
+   the data, so it gets the same amber the rest of the app already uses for "not yet resolved"
+   (warn tone), not red. */
+.banner-warn { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-fg); }
 
 .center { display: grid; place-items: center; min-height: 58vh; text-align: center; padding: var(--s6); }
 .center h2 { margin-bottom: 12px; }
@@ -513,7 +767,8 @@ table.data tfoot td.num { font-family: var(--mono); text-align: right; font-vari
 /* ── modal: Download's own filter popup, independent of the page's live filter ───────────── */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 250;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: flex-start; justify-content: flex-end;
+  padding: 96px 24px 0 0;
   background: rgba(20, 32, 46, .32);
   animation: modal-fade .15s ease-out;
 }
@@ -522,6 +777,11 @@ table.data tfoot td.num { font-family: var(--mono); text-align: right; font-vari
   padding: 24px;
   background: var(--surface); border-radius: var(--r-card, 18px);
   box-shadow: var(--lift-2);
+  animation: modal-pop .15s ease-out;
+}
+@keyframes modal-pop {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .modal-head h3 { margin: 0; font-size: 18px; font-weight: 650; color: var(--ink); }
@@ -535,9 +795,121 @@ table.data tfoot td.num { font-family: var(--mono); text-align: right; font-vari
 .modal-sub { margin: 8px 0 18px; font-size: 13.5px; color: var(--slate); line-height: 1.5; }
 .modal-filters { display: flex; flex-direction: column; gap: 12px; margin-bottom: 22px; }
 .modal-filters .filter-chip { width: 100%; }
-.modal-filters .filter-chip select { flex: 1; width: 100%; }
+.modal-filters .filter-chip select { flex: 1; width: 100%; max-width: none; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 @keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── evidence drawer: Source Data's "trace this figure" panel ────────────────────────────── */
+.drawer-backdrop {
+  position: fixed; inset: 0; z-index: 260;
+  background: rgba(20, 32, 46, .32);
+  display: flex; justify-content: flex-end;
+  animation: modal-fade .15s ease-out;
+}
+.drawer-panel {
+  width: 460px; max-width: 100vw; height: 100%;
+  background: var(--surface); box-shadow: var(--lift-2);
+  display: flex; flex-direction: column;
+}
+@media (max-width: 720px) { .drawer-panel { width: 100vw; } }
+.drawer-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 22px 22px 18px; border-bottom: 1px solid var(--hair); flex: none;
+}
+.drawer-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.drawer-title-row h3 { margin: 0; font-size: 18px; font-weight: 650; color: var(--ink); }
+.drawer-sub { margin: 6px 0 0; font-size: 13.5px; color: var(--slate); }
+.drawer-amount { margin: 4px 0 0; font-family: var(--mono); font-size: 15px; color: var(--ink); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 20px 22px 28px; }
+.drawer-breakdown { display: grid; gap: 8px; margin-bottom: var(--s5); }
+.drawer-breakdown-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--hair); border-radius: var(--r-btn);
+}
+.drawer-breakdown-amount { margin-left: auto; font-family: var(--mono); font-size: 14px; }
+.drawer-breakdown-pct { width: 44px; text-align: right; color: var(--slate); font-size: 13px; }
+.evidence-list { display: grid; gap: 12px; }
+.evidence-card { border: 1px solid var(--hair); border-radius: var(--r-btn); padding: 14px 16px; }
+.evidence-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.evidence-card-amount { font-family: var(--mono); font-size: 14.5px; }
+.evidence-card dl {
+  margin: 10px 0 0; display: grid; grid-template-columns: 84px 1fr; gap: 4px 10px;
+  font-size: 13.5px;
+}
+.evidence-card dt { color: var(--slate); }
+.evidence-card dd { margin: 0; color: var(--ink); }
+.evidence-body-text { white-space: pre-wrap; color: var(--slate); font-size: 13px; line-height: 1.5; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.evidence-error { color: var(--bad-fg); font-size: 13.5px; margin: 0; }
+
+/* ── evidence attachments: one real, clickable row per attachment on a mail record ────────── */
+.evidence-attachments { margin-top: 12px; display: grid; gap: 6px; }
+.evidence-attachment-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 12px; border: 1px solid var(--hair); border-radius: var(--r-btn);
+  background: var(--sunken); cursor: pointer; font: inherit; color: inherit; text-align: left;
+}
+.evidence-attachment-row:hover { background: var(--hover); border-color: var(--line); }
+.evidence-attachment-name { font-weight: 500; }
+.evidence-attachment-meta { color: var(--slate); font-size: 12.5px; }
+.evidence-attachment-view { margin-left: auto; color: var(--accent); font-weight: 600; font-size: 13px; white-space: nowrap; }
+
+/* ── document viewer: the real evidence behind one attachment ────────────────────────────── */
+.doc-viewer-backdrop {
+  position: fixed; inset: 0; z-index: 280;
+  background: rgba(20, 32, 46, .45);
+  display: flex; align-items: center; justify-content: center; padding: var(--s5);
+  animation: modal-fade .15s ease-out;
+}
+.doc-viewer {
+  width: 100%; max-width: 1320px; height: min(92vh, 1040px);
+  background: var(--surface); border-radius: var(--r-card, 14px); box-shadow: var(--lift-2);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.doc-viewer-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 16px 20px; border-bottom: 1px solid var(--hair); flex: none;
+}
+.doc-breadcrumb { font-size: 11.5px; color: var(--slate); letter-spacing: .01em; }
+.doc-filename { font-size: 16px; font-weight: 650; color: var(--ink); margin-top: 3px; }
+.doc-viewer-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.doc-viewer-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.doc-loading, .doc-fallback {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; color: var(--slate); padding: var(--s6);
+}
+
+.doc-sheet { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.doc-sheet-tabs { display: flex; gap: 2px; padding: 10px 16px 0; flex: none; }
+.doc-sheet-tab {
+  border: 1px solid var(--hair); border-bottom: none; background: var(--sunken); color: var(--slate);
+  padding: 7px 14px; border-radius: var(--r-btn) var(--r-btn) 0 0; cursor: pointer; font-size: 13px;
+}
+.doc-sheet-tab.active { background: var(--surface); color: var(--ink); font-weight: 600; }
+.doc-sheet-toolbar {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  border-bottom: 1px solid var(--hair); flex: none;
+}
+.doc-sheet-toolbar .input { min-width: 240px; }
+.doc-sheet-scroll { flex: 1; overflow: auto; padding: 0 16px 16px; }
+.doc-sheet-table { border-collapse: collapse; font-size: 14px; white-space: nowrap; }
+.doc-sheet-table td {
+  border: 1px solid var(--hair); padding: 8px 14px; font-family: var(--mono); color: var(--ink);
+}
+
+.doc-pdf { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.doc-pdf-toolbar {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  border-bottom: 1px solid var(--hair); flex: none;
+}
+.doc-pdf-canvas-wrap { flex: 1; overflow: auto; display: flex; justify-content: center; padding: var(--s3); background: var(--canvas); }
+.doc-pdf-canvas-wrap canvas { box-shadow: var(--lift-1); }
+
+.doc-image { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.doc-image-toolbar { padding: 10px 16px; border-bottom: 1px solid var(--hair); flex: none; }
+.doc-image-scroll { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; background: var(--canvas); }
+.doc-image-scroll img.doc-image-fit { max-width: 100%; max-height: 100%; }
+@media (max-width: 720px) { .doc-viewer { height: 100vh; border-radius: 0; } .doc-viewer-backdrop { padding: 0; } }
 
 /* ── corner toasts: reminder-sent confirmation, or anything else worth a quiet ack ────────── */
 .toast-stack {
@@ -662,7 +1034,13 @@ table.data tfoot td.num { font-family: var(--mono); text-align: right; font-vari
 .attn-figure.t-ok   { color: var(--ok-fg); }
 .attn-figure.t-info { color: var(--info-fg); }
 .attn-sub { font-size: 12.5px; color: var(--dust); }
-.attn-card .btn { justify-self: start; margin-top: 2px; }
+/* Full-width and wrapping, not the usual nowrap pill button - at two columns (see
+   .sidebar-cards above) a card is roughly half as wide as it used to be, and a long label like
+   "Open Financial Outcome →" no longer fits on one line without overflowing the card. */
+.attn-card .btn {
+  justify-self: stretch; width: 100%; white-space: normal; text-align: center;
+  line-height: 1.3; margin-top: 2px;
+}
 
 /* ── source data: summary strip ───────────────────────────────────────────
    Same .tally grid as every other KPI strip, except one cell holds a wrapped row of source
@@ -674,3 +1052,202 @@ table.data tfoot td.num { font-family: var(--mono); text-align: right; font-vari
   color: var(--slate);
 }
 .source-pill-list { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ── home dashboard: KPI cards (icon-in-circle) ───────────────────────────────────────────
+   A different shape from Financial Outcome's .tally strip on purpose - this is the portfolio
+   headline read, meant to scan left-to-right as six separate facts, not one joined instrument
+   panel. Same colour vocabulary throughout (ok/info/warn/bad/accent), just a new layout. */
+/* A fixed count of 6 cards wants a fixed count of columns, not auto-fit - auto-fit packs
+   whatever fits the exact pixel width with no concept of "keep the rows even", which is how a
+   6-card row was silently landing as 5+1 or 4+2 depending on viewport (verified with
+   Playwright at 1920/1440/1280px - the 1280px case even left the orphaned 6th card a visibly
+   different height from its row, since CSS Grid's align-items:stretch only equalises height
+   within a shared row). Explicit column counts guarantee a clean, even split at every width
+   this is tested at. */
+.kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--s2); }
+@media (max-width: 1180px) { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 560px)  { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi-card {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 20px; background: var(--surface);
+  border: 1px solid var(--hair); border-radius: var(--r-stad);
+  box-shadow: var(--lift-1);
+}
+.kpi-icon {
+  flex: none; width: 44px; height: 44px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.kpi-icon svg { width: 22px; height: 22px; stroke-width: 2.1; }
+.kpi-icon-neutral { background: var(--sunken); color: var(--slate); }
+.kpi-icon-accent  { background: rgba(47, 85, 120, .12); color: var(--accent); }
+.kpi-icon-info    { background: var(--info-bg); color: var(--info-fg); }
+.kpi-icon-warn    { background: var(--warn-bg); color: var(--warn-fg); }
+.kpi-icon-ok      { background: var(--ok-bg); color: var(--ok-fg); }
+.kpi-icon-bad     { background: var(--bad-bg); color: var(--bad-fg); }
+.kpi-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kpi-text b {
+  font-family: var(--mono); font-size: 24px; font-weight: 600; line-height: 1.15;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink);
+}
+.kpi-text b.t-hot  { color: var(--bad-fg); }
+.kpi-text b.t-good { color: var(--ok-fg); }
+.kpi-text > span { font-size: 13px; color: var(--slate); font-weight: 500; }
+/* Same "prominent label" treatment Financial Outcome's own Profit/Loss card uses - see its
+   .tally .accent rule - kept as a distinct class here since this card is a different component. */
+.kpi-label-accent { font-size: 12.5px; font-weight: 800; letter-spacing: .02em; }
+.kpi-text b.t-hot ~ .kpi-label-accent  { color: var(--bad-fg); }
+.kpi-text b.t-good ~ .kpi-label-accent { color: var(--ok-fg); }
+.kpi-text em { display: block; margin-top: 2px; font-size: 11.5px; font-style: normal; color: var(--dust); }
+.kpi-text em.t-ok  { color: var(--ok-fg); }
+.kpi-text em.t-bad { color: var(--bad-fg); }
+
+/* ── home dashboard: two-column layout ─────────────────────────────────────────────────
+   A single named-area grid, not two independently-flowing columns - "perf"/"alerts" share
+   row 1, "glance"/"activity" share row 2, so their section headers start at the exact same y
+   by construction (shared grid row), the same way "Projects Performance" and "Alerts & Status"
+   already did. "perf" is not just the Projects Performance table - it's a wrapper stacking that
+   table with the Financial Overview/Profitability Trend charts row underneath, so the charts
+   start right under the table instead of leaving row 1's leftover height (set by whichever of
+   the table or the four-card Alerts & Status stack is taller) sitting blank. */
+.dash-grid {
+  display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  grid-template-areas:
+    "perf    alerts"
+    "glance  activity";
+  gap: var(--s3); align-items: start; margin-top: var(--s6);
+}
+@media (max-width: 1180px) {
+  .dash-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "perf" "glance" "alerts" "activity";
+  }
+}
+/* Spacing between rows/columns comes from the grid's own `gap` now, not each section's usual
+   margin-top (var(--s6), needed elsewhere on pages without this grid) - left in place that
+   would stack on top of `gap` and desync the shared row heights this layout depends on. */
+.dash-grid > * { margin-top: 0; }
+.dash-perf     { grid-area: perf; }
+.dash-glance   { grid-area: glance; }
+.dash-alerts   { grid-area: alerts; }
+.dash-activity { grid-area: activity; }
+/* The wrapper itself isn't a .section, so it never picked up the global margin-top - whichever
+   of Projects Performance / the charts row happens to be first needs zeroing so it sits flush
+   with row 1's top; the other one gets the usual section spacing above it. Written to not care
+   which of the two is actually first in the markup, since that order has changed once already.
+   Zeroing the wrapper alone isn't enough when the charts row is first: its own .section children
+   (Financial Overview/Profitability Trend) still carry the global `.section` margin-top, which
+   doesn't collapse through a `display: grid` wrapper - so their headers sat ~48px below "Alerts
+   & Status" (a direct grid child, zeroed correctly) instead of level with it. */
+.dash-perf > .section:first-child,
+.dash-perf > .dash-charts:first-child { margin-top: 0; }
+.dash-perf > .dash-charts:first-child > .section { margin-top: 0; }
+.dash-perf > .dash-charts { margin-top: var(--s6); }
+.dash-charts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); align-items: stretch; }
+@media (max-width: 900px) { .dash-charts { grid-template-columns: 1fr; } }
+.dash-charts > .section { margin-top: var(--s6); display: flex; flex-direction: column; }
+/* Financial Overview (several project bar-groups) and Profitability Trend (one chart) never
+   have the same natural content height - stretching the row and letting the shorter card's
+   content centre inside it is what actually closes the "large empty gap under the chart"
+   rather than leaving it pinned to the top with dead space below. */
+.dash-charts > .section > .card { flex: 1; display: flex; flex-direction: column; }
+.dash-charts > .section > .card > .pad { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.sidebar-cards { display: flex; flex-direction: column; gap: var(--s2); }
+/* Row 1 of the dashboard grid takes its height from .dash-perf (Projects Performance sits
+   below the charts there) - .dash-alerts, sized only by its own four cards, is naturally
+   shorter, leaving blank page background under its last card instead of filling the row. Stretch
+   the column to the row's full height and let the last card grow into the leftover space. */
+.dash-alerts { align-self: stretch; display: flex; flex-direction: column; }
+.dash-alerts > .sidebar-cards { flex: 1; }
+.sidebar-cards > *:last-child { flex: 1; display: flex; flex-direction: column; }
+.sidebar-cards > *:last-child > .card { flex: 1; display: flex; flex-direction: column; }
+
+/* ── home dashboard: at-a-glance strip ─────────────────────────────────────────────────
+   Same fixed-column reasoning as .kpi-grid above - 6 known cards, explicit columns, so the
+   split is always even (2 clean rows of 3) instead of whatever auto-fit's pixel math happens
+   to produce. This sits inside the narrower .dash-main column (the sidebar takes the rest of
+   the width), so 3-across is the sensible default here rather than .kpi-grid's 6. */
+.glance-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s2); }
+@media (max-width: 640px) { .glance-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.glance-cell { display: flex; align-items: center; gap: 12px; }
+.glance-cell.glance-clickable {
+  width: 100%; border: none; background: transparent; text-align: left; cursor: pointer;
+  font: inherit; color: inherit;
+}
+.glance-cell.glance-clickable:hover { background: var(--hover); }
+.glance-icon {
+  flex: none; width: 36px; height: 36px; border-radius: var(--r-btn);
+  display: flex; align-items: center; justify-content: center;
+}
+.glance-icon svg { width: 18px; height: 18px; stroke-width: 2.1; }
+.glance-icon-neutral { background: var(--sunken); color: var(--slate); }
+.glance-icon-ok      { background: var(--ok-bg); color: var(--ok-fg); }
+.glance-icon-warn    { background: var(--warn-bg); color: var(--warn-fg); }
+.glance-icon-bad     { background: var(--bad-bg); color: var(--bad-fg); }
+.glance-cell b {
+  display: block; font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--ink);
+}
+.glance-cell > div > span { display: block; font-size: 12px; color: var(--slate); margin-top: 2px; }
+.glance-cell em { display: block; font-size: 11px; font-style: normal; color: var(--dust); margin-top: 1px; }
+
+/* ── home dashboard: recent activity feed ─────────────────────────────────────────────────
+   Every row here is real - written by core/activity.py at the moment a sync/decision/finalize/
+   reopen/reminder actually completed, never invented display copy (see CLAUDE.md's "Decided"
+   note this feature was built against). */
+.activity-feed {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2);
+  max-height: 440px; overflow-y: auto;
+}
+.activity-feed li { display: flex; align-items: flex-start; gap: 10px; }
+.activity-icon {
+  flex: none; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--sunken); color: var(--slate);
+  display: flex; align-items: center; justify-content: center;
+}
+.activity-icon svg { width: 15px; height: 15px; stroke-width: 2.1; }
+.activity-body { flex: 1; min-width: 0; }
+.activity-title { font-size: 13.5px; font-weight: 500; color: var(--ink); line-height: 1.35; }
+.activity-detail { font-size: 12px; color: var(--slate); margin-top: 2px; }
+.activity-time {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--dust); white-space: nowrap; margin-top: 2px;
+}
+.activity-time i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+
+/* ── home dashboard: profitability trend (inline SVG line chart) ─────────────────────────
+   One point per sampled month, computed by the same portfolioFor() the KPI row itself uses -
+   never more points than there are real months in the sample. */
+/* Fills whatever height the stretched card actually gives it (see .dash-charts above) without
+   distorting the line: a ResizeObserver on this wrapper (Home.jsx) measures its real pixel box
+   and the SVG's viewBox is set to those exact dimensions, so the coordinate system's aspect
+   ratio always matches the box it's drawn into - the earlier preserveAspectRatio="none" approach
+   stretched a fixed 640x200 viewBox non-uniformly onto whatever box the flex row gave it, which
+   is what visibly "bulged" the line whenever the box was far from 3.2:1. min-height is the
+   fallback once .dash-charts drops to one column (small screens) and there is no taller sibling
+   to match. */
+.trend-chart { position: relative; width: 100%; flex: 1; min-height: 180px; display: block; }
+.trend-chart svg { width: 100%; height: 100%; display: block; }
+.trend-zero { stroke: var(--hair); stroke-width: 1; }
+.trend-area { fill: rgba(31, 92, 52, .08); stroke: none; }
+.trend-line { fill: none; stroke: var(--ok-fg); stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.trend-dot { fill: var(--surface); stroke: var(--ok-fg); stroke-width: 2.2; transition: r .12s ease; }
+.trend-dot.neg { stroke: var(--bad-fg); }
+.trend-x-label { font-size: 10px; fill: var(--dust); font-family: var(--sans); }
+.trend-hover-line { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+
+/* Anchored near the top of the chart's own box, not floating at the hovered point's own height -
+   that point can sit anywhere from the top to the bottom of the plot, and a tooltip that chased
+   it vertically would routinely collide with the card's own clipped edge. Horizontal position
+   still follows the hovered point (clamped in JS so it never runs past either edge). */
+.trend-tooltip {
+  position: absolute; top: 6px; transform: translateX(-50%);
+  min-width: 148px; padding: 10px 12px; pointer-events: none; z-index: 5;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-btn);
+  box-shadow: var(--lift-1); font-size: 12.5px;
+}
+.trend-tooltip b { display: block; color: var(--ink); }
+.trend-tooltip > b { font-size: 13px; margin-bottom: 6px; }
+.trend-tooltip div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.trend-tooltip div + div { margin-top: 3px; }
+.trend-tooltip div span { color: var(--slate); }
+.trend-tooltip div b { font-family: var(--mono); font-weight: 600; }
+.trend-tooltip div.neg b { color: var(--bad-fg); }

@@ -1,86 +1,219 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import DataTable from '../components/DataTable'
-import { Card, FilterChip, Pill, Section } from '../components/Bits'
-import { compact, money } from '../utils'
+import { Card, FilterChip, Pill, Section, Tally } from '../components/Bits'
+import { EvidenceDrawer } from '../components/EvidenceDrawer'
+import { IconEye } from '../components/Icons'
+import { CATEGORY, ITEM_STATUS, SOURCE_TONE, StatusPill, itemsForMonth } from '../reconciliation'
+import { money } from '../utils'
 
-// Three categories, not nine - MMS/WBM/FBA/REV are all the ERP stand-in, Return/Unrouted are
-// both mail-sourced. The finer-grained module name is still readable in the Description column
-// for anyone who needs it; the Source column and its filter only ever choose between the three
-// systems this whole product reconciles: ERP, Tally, and Mail.
-const CATEGORY = (source) => (source === 'Tally' ? 'Tally' : source === 'Return' || source === 'Unrouted' ? 'Mail' : 'ERP')
-const TONE = { Tally: 'info', Mail: 'mute', ERP: 'ok' }
-const toneFor = (source) => TONE[CATEGORY(source)]
+const dash = (v) => (v === null || v === undefined ? '—' : money(v))
+const pct = (v) => (v === null || v === undefined ? '—' : `${v}%`)
 
-function SourceDetail({ row, onClose, onNavigate }) {
+// Scopes an item to one source only, for the Source filter. An item left with nothing after
+// scoping is dropped by the caller rather than shown as an empty row.
+function scopeToSource(item, src) {
+  if (src === 'all') return item
+  const records = item.records.filter((x) => CATEGORY(x.source) === src)
+  return { ...item, records, sources: records.length ? [src] : [],
+    consolidatedValue: records.reduce((s, x) => s + (x.amount || 0), 0) }
+}
+
+function DataItemTable({ items, onOpenDrawer }) {
   return (
-    <Card title="Source detail"
-          right={<button type="button" className="btn btn-quiet btn-xs" onClick={onClose}>Close</button>}>
-      <div className="pad">
-        <dl className="kvlist">
-          <dt>Source</dt><dd><Pill tone={toneFor(row.source)}>{CATEGORY(row.source)}</Pill></dd>
-          <dt>Project</dt><dd>{row.projectName}</dd>
-          <dt>Month</dt><dd>{row.monthLabel}</dd>
-          <dt>Line</dt><dd>{row.label}</dd>
-          <dt>Amount</dt><dd>{row.amount === null || row.amount === undefined ? '—' : money(row.amount)}</dd>
-          <dt>Reference</dt><dd>{row.ref || '—'}</dd>
-          <dt>Description</dt><dd>{row.description}</dd>
-          {row.routedBy && (
-            <>
-              <dt>Routing</dt>
-              <dd>{row.senderMismatch
-                ? 'Subject and sender disagreed on the project'
-                : `Routed by ${row.routedBy}`}</dd>
-            </>
-          )}
-        </dl>
-        {row.project && (
-          <div style={{ marginTop: 'var(--s3)' }}>
-            <button type="button" className="btn btn-ink btn-sm"
-                    onClick={() => onNavigate?.('consolidation', { project: row.project, month: row.month })}>
-              View in Financial Outcome →
+    <DataTable
+      rows={items}
+      rowKey={(r) => r.key}
+      rowClass={(r) => (r.status === 'not-received' ? 'row-flag' : undefined)}
+      empty="No data items match those filters."
+      cols={[
+        {
+          key: 'label', label: 'Data Item', sortable: false, nowrap: true,
+          render: (r) => (
+            <button type="button" className="row-toggle" onClick={() => onOpenDrawer(r)}>
+              {r.label}
             </button>
-          </div>
-        )}
-      </div>
-    </Card>
+          ),
+        },
+        { key: 'consolidatedValue', label: 'Consolidated Value (INR)', num: true,
+          sortable: false, fmt: money },
+        {
+          key: 'sources', label: 'Sources', sortable: false,
+          render: (r) => (r.sources.length
+            ? r.sources.map((s) => <Pill key={s} tone={SOURCE_TONE[s]}>{s.toUpperCase()}</Pill>)
+            : <span className="dim-note">—</span>),
+        },
+        {
+          key: 'sourceCount', label: 'Source Count', num: true, sortable: false,
+          render: (r) => (
+            <button type="button" className="row-toggle" onClick={() => onOpenDrawer(r)}>
+              {r.records.length}
+            </button>
+          ),
+        },
+        {
+          key: 'status', label: 'Status', sortable: false,
+          render: (r) => {
+            const st = ITEM_STATUS[r.status]
+            return st ? <Pill tone={st.tone}>{st.label}</Pill> : null
+          },
+        },
+        {
+          key: 'view', label: 'View', sortable: false,
+          render: (r) => (
+            <button type="button" className="row-eye" title="View source detail"
+                    onClick={() => onOpenDrawer(r)}>
+              <IconEye />
+            </button>
+          ),
+        },
+      ]}
+    />
   )
 }
 
-export default function Lineage({ state, filterHost, navFocus, onNavigate }) {
-  const { lineage, masters, unattributed } = state
+// One item table per relevant month - a single table when a specific month is selected, one per
+// sampled month (each under its own month banner) when "All months" is - the exact all/one-month
+// duality Financial Outcome's own ProjectSummaryTable already established, reused rather than
+// inventing a second way to fold many months into one row.
+function ItemsBlock({ project, month, onOpenDrawer }) {
+  if (!project.items.length) {
+    return <p className="dim-note" style={{ padding: '10px 4px' }}>No data items for this selection.</p>
+  }
+  const groups = month === 'all'
+    ? [...project.items.reduce((m, it) => {
+        if (!m.has(it.month)) m.set(it.month, [])
+        m.get(it.month).push(it)
+        return m
+      }, new Map()).entries()]
+    : [[month, project.items]]
+
+  return (
+    <>
+      {groups.map(([m, items]) => {
+        const records = items.reduce((s, it) => s + it.records.length, 0)
+        // Same "backed by real evidence" rule the project row's own Data Items count uses -
+        // this footer would otherwise silently disagree with that number.
+        const consolidated = items.filter((it) => it.records.length > 0).length
+        return (
+          <div key={m} className="nested-items-block">
+            {month === 'all' && (
+              <div className="section-banner" style={{ marginBottom: 8 }}>{items[0].monthLabel}</div>
+            )}
+            <div className="nested-items-card">
+              <DataItemTable items={items} onOpenDrawer={onOpenDrawer} />
+            </div>
+            <p className="dim-note" style={{ margin: '10px 2px 0' }}>
+              {consolidated} of {items.length} item{items.length === 1 ? '' : 's'} consolidated ·{' '}
+              {records} source record{records === 1 ? '' : 's'}
+            </p>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+export default function Lineage({ state, filterHost, navFocus }) {
+  const { lineage, masters } = state
   const latest = masters.months.at(-1).key
   const [src, setSrc] = useState('all')
   const [proj, setProj] = useState(() => navFocus?.project || 'all')
   const [month, setMonth] = useState(() => navFocus?.month || latest)
   const [q, setQ] = useState(() => navFocus?.q || '')
-  const [selected, setSelected] = useState(null)
+  const [openProjects, setOpenProjects] = useState(() => {
+    // One project expanded by default, to show the shape of the page - not a fixed code, since
+    // a future dataset might not carry this exact project.
+    const tidel = masters.projects.find((p) => p.name.includes('Tidel'))
+    return new Set(tidel ? [tidel.code] : [])
+  })
+  const [drawer, setDrawer] = useState(null)
 
   const categories = useMemo(
-    () => Array.from(new Set(lineage.map((r) => CATEGORY(r.source)))).sort(), [lineage]
+    () => Array.from(new Set(lineage.map((r) => CATEGORY(r.source)))).sort(), [lineage],
+  )
+  const lineLabel = useMemo(
+    () => Object.fromEntries(masters.lines.map((l) => [l.key, l.label])), [masters],
   )
 
-  const rows = useMemo(() => {
-    const needle = q.trim().toLowerCase()
-    return lineage.filter(
-      (r) =>
-        (src === 'all' || CATEGORY(r.source) === src) &&
-        (proj === 'all' || r.project === proj) &&
-        // A row with no month (mail that could not be routed) is not tied to a period, so it
-        // stays visible regardless of which month is selected.
-        (month === 'all' || r.month === null || r.month === month) &&
-        (!needle ||
-          `${r.description} ${r.label} ${r.ref} ${r.projectName}`
-            .toLowerCase().includes(needle))
-    )
-  }, [lineage, src, proj, month, q])
+  const toggleProject = (code) => setOpenProjects((prev) => {
+    const next = new Set(prev)
+    next.has(code) ? next.delete(code) : next.add(code)
+    return next
+  })
 
-  // Feeds the commented-out "Unassigned costs" section below - state.unattributed is still
-  // there, just not displayed here for now.
-  // const unattrTotal = unattributed.reduce((s, u) => s + u.amount, 0)
+  const qq = q.trim().toLowerCase()
+
+  // One row per project in scope, each carrying the item rows it would show if expanded -
+  // computed regardless of expansion, since the Data Items/Source Records columns need the
+  // real count either way, not just once a reader happens to open it.
+  const projectRows = useMemo(() => {
+    const projects = masters.projects.filter((p) => proj === 'all' || p.code === proj)
+    return projects
+      .map((p) => {
+        const posEntries = month === 'all'
+          ? state.position.filter((x) => x.project === p.code)
+          : state.position.filter((x) => x.project === p.code && x.month === month)
+        const rawItems = posEntries.flatMap((pos) => {
+          const cons = state.consolidation.find((c) => c.project === p.code && c.month === pos.month)
+          return itemsForMonth({ project: p.code, month: pos.month, cons, pos, masters, lineage, lineLabel })
+        })
+        const scoped = rawItems
+          .map((it) => scopeToSource(it, src))
+          .filter((it) => src === 'all' || it.records.length > 0)
+        const projectMatchesQ = !qq || p.name.toLowerCase().includes(qq)
+        const visibleItems = projectMatchesQ ? scoped : scoped.filter((it) => it.label.toLowerCase().includes(qq))
+
+        const scopeFig = month === 'all'
+          ? state.cumulative.find((c) => c.project === p.code)
+          : state.position.find((x) => x.project === p.code && x.month === month)
+
+        // "Consolidated" means backed by at least one real source record - a line item nobody
+        // has reported or booked anything against yet (a return that never arrived) has nothing
+        // to consolidate, so it doesn't count here even though it still has its own row in the
+        // table below (seeing that gap is the point of that table). Real reconciliation lines
+        // always number 10 per project-month by R2's own citation (revenue + 4 cost heads + the
+        // mail-only returns + salary), so counting every row regardless of whether it has
+        // evidence behind it would make this figure nothing more than projects x 10 - counting
+        // only the ones with real evidence is what makes it move with actual data completeness
+        // instead of just project count.
+        const consolidatedItems = visibleItems.filter((it) => it.records.length > 0)
+
+        return {
+          code: p.code, name: p.name, hasData: posEntries.length > 0,
+          tenderAmount: scopeFig?.tenderAmount ?? null,
+          profit: scopeFig ? (scopeFig.profit ?? scopeFig.provisionalProfit ?? null) : null,
+          margin: scopeFig ? (scopeFig.margin ?? scopeFig.provisionalMargin ?? null) : null,
+          status: scopeFig?.status || 'OPEN',
+          items: visibleItems,
+          dataItems: consolidatedItems.length,
+          sourceRecords: visibleItems.reduce((s, it) => s + it.records.length, 0),
+          matchesQ: projectMatchesQ,
+        }
+      })
+      .filter((p) => (p.hasData || proj !== 'all') && (p.matchesQ || p.dataItems > 0))
+  }, [masters, proj, month, src, qq, state.position, state.consolidation, state.cumulative, lineage, lineLabel])
+
+  const totals = useMemo(() => ({
+    projects: projectRows.length,
+    items: projectRows.reduce((s, p) => s + p.dataItems, 0),
+    records: projectRows.reduce((s, p) => s + p.sourceRecords, 0),
+  }), [projectRows])
+
+  const tableRows = projectRows.flatMap((p) => {
+    const base = { ...p, key: p.code }
+    if (!openProjects.has(p.code)) return [base]
+    return [base, {
+      key: `${p.code}-detail`, _detail: true,
+      content: (
+        <ItemsBlock project={p} month={month}
+                    onOpenDrawer={(item) => setDrawer({ item, projectName: p.name })} />
+      ),
+    }]
+  })
 
   return (
-    <>
+    <div className="source-data-page">
       {filterHost && createPortal(
         <div className="filter-bar">
           <FilterChip label="Source" value={src} onChange={(e) => setSrc(e.target.value)}
@@ -95,7 +228,7 @@ export default function Lineage({ state, filterHost, navFocus, onNavigate }) {
           <input
             className="input"
             value={q}
-            placeholder="Search description or reference"
+            placeholder="Search data items..."
             onChange={(e) => setQ(e.target.value)}
           />
         </div>,
@@ -103,93 +236,48 @@ export default function Lineage({ state, filterHost, navFocus, onNavigate }) {
       )}
 
       <Section label="Source summary">
-        {/* Two plain stat cells fit the shared Tally shape; the third holds a list of pills
-            rather than one figure, so it keeps its own accessible name instead. */}
-        <div className="tally" role="group" aria-label="Source summary">
-          <div role="group" aria-label={`Total source records: ${lineage.length}`}>
-            <b aria-hidden="true">{lineage.length}</b>
-            <span aria-hidden="true">Total source records</span>
-          </div>
-          <div role="group" aria-label={`Visible or filtered: ${rows.length} of ${lineage.length}`}>
-            <b aria-hidden="true">{rows.length} of {lineage.length}</b>
-            <span aria-hidden="true">Visible / filtered</span>
-          </div>
-          <div className="source-pill-cell" role="group" aria-label="Sources">
-            <span className="source-pill-label" aria-hidden="true">Sources</span>
-            <div className="source-pill-list">
-              {categories.map((c) => <Pill key={c} tone={TONE[c]}>{c}</Pill>)}
-            </div>
-          </div>
-        </div>
+        <Tally label="Source summary" items={[
+          { label: 'Projects', value: String(totals.projects) },
+          { label: 'Consolidated Items', value: String(totals.items) },
+          { label: 'Source Records', value: String(totals.records), note: 'Underlying records' },
+        ]} />
       </Section>
 
-      {/* Retired for now, at the user's request - state.unattributed itself is untouched, only
-          this display of it is off. To bring it back, uncomment this block.
-      {unattributed.length > 0 && (
-        <Section label="Unassigned costs"
-                 count={{ text: `${compact(unattrTotal)} · ${unattributed.length} record${unattributed.length === 1 ? '' : 's'}`,
-                   hot: true }}>
-          <Card note="Tally cost with no project cost centre - mostly the head-office pool.
-            Never apportioned across projects; reported here in full instead.">
-            <div className="pad mini-list">
-              {unattributed.map((u, i) => (
-                <div key={i}>
-                  <span>{u.monthLabel} · {u.ledger} — {u.reason}</span>
-                  <b>{compact(u.amount)}</b>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </Section>
+      <Section label="Projects" count={`${projectRows.length} of ${masters.projects.length}`}>
+        <Card>
+          <DataTable
+            rows={tableRows}
+            rowKey={(r) => r.key}
+            rowClass={(r) => (r._detail ? 'row-section' : r.status === 'OPEN' ? 'row-flag' : undefined)}
+            rowSpan={(r) => (r._detail ? r.content : null)}
+            empty="No projects match those filters."
+            cols={[
+              {
+                key: 'name', label: 'Project', sortable: false, nowrap: true,
+                render: (r) => (
+                  <button type="button" className="row-toggle" onClick={() => toggleProject(r.code)}
+                          aria-expanded={openProjects.has(r.code)}>
+                    <span className={`caret${openProjects.has(r.code) ? ' open' : ''}`} aria-hidden="true">&gt;</span>
+                    {r.name}
+                  </button>
+                ),
+              },
+              { key: 'tenderAmount', label: 'Contract Value (INR)', num: true, sortable: false, fmt: dash },
+              { key: 'profit', label: 'Profit / Loss (INR)', num: true, sortable: false, fmt: dash },
+              { key: 'margin', label: 'Margin', num: true, sortable: false, fmt: pct },
+              { key: 'dataItems', label: 'Data Items', num: true, sortable: false },
+              { key: 'sourceRecords', label: 'Source Records', num: true, sortable: false },
+              { key: 'status', label: 'Status', sortable: false,
+                render: (r) => <StatusPill status={r.status} /> },
+            ]}
+          />
+        </Card>
+      </Section>
+
+      {drawer && (
+        <EvidenceDrawer item={drawer.item} projectName={drawer.projectName}
+                         onClose={() => setDrawer(null)} />
       )}
-      */}
-
-      <div className={selected ? 'grid2' : undefined} style={selected ? { alignItems: 'start' } : undefined}>
-        <Section label="Source rows" count={`${rows.length} of ${lineage.length}`}>
-          <Card note="The raw row behind a Financial Outcome figure — voucher, ERP entry or
-            mail return. Select a row to trace it back to the project it feeds.">
-            <DataTable
-              rows={rows}
-              maxHeight="56vh"
-              rowKey={(r, i) => `${r.source}-${r.ref}-${i}`}
-              rowClass={(r) => (selected === r ? 'row-flag' : undefined)}
-              empty="No source rows match those filters."
-              cols={[
-                {
-                  key: 'source', label: 'Source', sortable: false,
-                  render: (r) => (
-                    <button type="button" className="row-toggle" onClick={() => setSelected(r)}
-                            aria-pressed={selected === r}>
-                      <Pill tone={toneFor(r.source)}>{CATEGORY(r.source)}</Pill>
-                    </button>
-                  ),
-                },
-                { key: 'projectName', label: 'Project' },
-                { key: 'monthLabel', label: 'Month' },
-                { key: 'label', label: 'Line' },
-                {
-                  key: 'amount', label: 'Amount', num: true,
-                  fmt: (v) => (v === null || v === undefined ? '' : money(v)),
-                },
-                {
-                  key: 'routedBy', label: 'Routed by', sortable: false,
-                  render: (r) => {
-                    if (!r.routedBy) return null
-                    if (r.senderMismatch) return <Pill tone="warn">disagree</Pill>
-                    return <Pill tone={r.routedBy === 'sender' ? 'info' : 'mute'}>{r.routedBy}</Pill>
-                  },
-                },
-                { key: 'ref', label: 'Reference', mono: true },
-                { key: 'description', label: 'Description', wrap: true },
-              ]}
-            />
-          </Card>
-        </Section>
-
-        {selected && (
-          <SourceDetail row={selected} onClose={() => setSelected(null)} onNavigate={onNavigate} />
-        )}
-      </div>
-    </>
+    </div>
   )
 }

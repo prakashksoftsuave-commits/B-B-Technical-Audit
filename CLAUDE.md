@@ -701,6 +701,139 @@ Verified live: with Riverside already finalized and Tidel still open, calling th
 finalized only ORR (the one that was ready), left the other two alone, and reported both lists
 correctly - confirmed against `/api/state` before and after, and selftest still 11/11.
 
+### Decided: a finalized report carries fewer details than a working one
+
+The Download popup builds the same two-sheet workbook regardless of whether the project/month
+scope it was asked for is still being worked or already closed - full line-by-line ERP/Tally/mail
+detail either way. The ask: once a scope is finalized, the report for it should show less, not
+the same working detail an open month needs.
+
+`workbook.write()` now gates on `company["status"] == "FINALIZED"` - the exact same
+`worst_status()`-derived condition `_financial_outcome` already used to decide Current vs Final
+wording, now decided once in the driver and threaded to `_project_outcomes` too, rather than
+computed twice. It is true only when *every* project-month the request resolves to is finalized -
+a mixed "all projects" scope with one open month still gets the full working report, since the
+scope as a whole is not settled.
+
+First cut dropped the entire "Cost reconciliation, by project" block for a finalized scope,
+which went too far - it took the real reconciliation lines (revenue, each cost head, salary,
+the mail evidence lines, both totals) with it, not just the working detail. Corrected: a
+finalized report still prints every `_recon_row` (the actual lines an auditor reads - that is
+the outcome, not drill-down) but skips only the raw ERP/Tally/mail transaction-level rows
+nested under each line (`_sub_detail`/`_mail_sub_detail`/`_stock_sub_detail`) - the detail that
+mattered while a line was still being decided, not after it was. `_financial_outcome`'s own
+"Answers this report gives directly" bullets still drop the Current/under-review language for a
+finalized scope and state only the settled totals. Nothing computed here changed - both
+branches still read `res["position"]`/`res["rows"]` exactly as before. Verified against a live
+finalized project-month (Tidel, May) and a live open one (Tidel, August): the finalized workbook
+now carries the full 26-row reconciliation (every line and both totals, no transaction rows),
+the open one its usual ~77-row detail, and selftest stayed 12/12 throughout. Also caught in the
+same round: the FastAPI dev server does not run with `--reload`, so a code change here needs the
+process restarted before a download reflects it - worth remembering next time a fix "doesn't
+show up."
+
+Second round of the same ask: even that corrected reconciliation table was still an audit
+working paper, not something to hand an MD - the Status column ("MATCHED"/"RESOLVED"/"FINAL")
+and the Decision column's process commentary ("...no decision needed", "Steel reconciliation -
+offcut recovery credited - applied automatically") are exactly the mechanics a sign-off document
+should not carry. `_project_outcomes` now branches properly on `finalized`: the non-finalized
+path is untouched (still the full `_recon_row` table with ERP/Tally/Mail/Difference/Status/
+Decision plus every `_sub_detail` drill-down); the finalized path is a new, separate "Final
+breakdown, by project" block built with `_final_row` - item name and one settled amount, nothing
+else. Every figure it prints is `pos["lines"][...]["approved"]`, `pos["approvedRevenue"]`,
+`pos["approvedCost"]`, `pos["profit"]`/`pos["margin"]`, or an already-final mail figure (formwork,
+stock delta, adjustments) - the exact components `outcome._figures()` sums to reach those two
+totals (see its docstring), just laid out plainly instead of re-derived. Verified the two totals
+against the underlying components by hand for a live finalized month (Tidel, May: cost lines +
+stock adjustment + salary + formwork + cost adjustment summed to the printed Total cost to the
+rupee, and Total revenue − Total cost matched the printed Profit/Loss) - confirming the clean
+layout still ties to the same reconciled figures, not a re-typed guess.
+
+### Decided: one sheet per project once more than one is in scope
+
+Two asks in one round, both from the same screenshot: a multi-project download's "Project
+outcomes" sheet crammed every project's line items into one sheet one after another, and the
+plain filename ("Monthly_Outcome_Report.xlsx") gave no way to tell two single-project downloads
+apart in the same Downloads folder.
+
+- **Filename carries the project name**: `main.py`'s `/api/report.xlsx` now appends the
+  project's display name (sanitized to `[A-Za-z0-9_]`, via `C.BY_CODE`) to the filename when a
+  specific project was requested - `Monthly_Outcome_Report_Tidel_Park_Block_C_Taramani.xlsx`,
+  not the generic name. An all-projects download keeps the plain name, unchanged.
+- **One sheet per project, once more than one is in scope**: `_project_outcomes` now keeps a
+  single project's detail inline (unchanged - this is the common case and nothing about it
+  needed to move), but once `rows` holds more than one project, the shared "Project outcomes"
+  sheet becomes a pure overview (the summary table only) and each project gets its own sheet,
+  named for the project (`_unique_sheet_title` sanitizes/truncates to Excel's 31-char, no
+  `[]:*?/\` limit and dedupes a truncation collision with a numeric suffix - none of the three
+  real project names actually collide, but two projects sharing a 31-character prefix is not
+  impossible). `_write_final_breakdown`/`_write_reconciliation` (the two branches
+  `_project_outcomes` used to run in one shared sheet) are now plain per-project functions
+  called either inline or against a fresh sheet - one code path, two destinations, not two
+  copies of the layout logic.
+- **A real bug this incidentally fixed**: which branch a project got was previously decided by
+  `company["status"]` - the *whole scope's* worst status - so one still-open project anywhere
+  in an "all projects" download pushed every project in it, including ones already genuinely
+  finalized, back into the full working-paper view. Each project's block is now gated on
+  `pos["status"] == "FINALIZED"` - **that project's own status**, decided independently. Verified
+  live against August, a real mixed month (Riverside finalized, Tidel and ORR still open): the
+  download came back with "Riverside Towers - Manapakkam" as its own clean settled-breakdown
+  sheet while "Tidel Park Block C - Taramani" and "ORR Flyover Package 3" each got their own full
+  reconciliation sheet - three separate sheets, each in the shape its own project earned, plus
+  the unchanged single "Financial outcome" portfolio summary. Single-project downloads
+  (Tidel/May finalized, Tidel/August open) re-verified unchanged throughout, and selftest stayed
+  12/12.
+
+### Decided: the finalized breakdown gets its transaction/vendor/material detail back
+
+Immediately clarified against the very "approved" report just fixed above: "clean, no audit
+trail" had been read as "no further line items either" - the finalized breakdown showed
+"Material consumed: 10,806,300" as one number, where the working-paper view a click away showed
+it broken down by material and vendor. That is real information a finalized report was
+silently dropping, not process commentary - the two things this round's earlier fix was
+supposed to tell apart.
+
+`_final_row` gained a `detail=True` style (small grey, indented - the same convention
+`_detail_row` already uses in the working-paper view), and three new functions -
+`_final_sub_detail`/`_final_mail_sub_detail`/`_final_stock_sub_detail` - mirror
+`_sub_detail`/`_mail_sub_detail`/`_stock_sub_detail` exactly (same source, same filter, same
+order: a finalized report must never disagree with the working one about what the underlying
+transactions actually were) but render each row as one settled amount via `_final_row`, never
+the ERP/Tally/Mail columns those working-paper functions carry. `_write_final_breakdown` now
+calls these after every relevant line - revenue's own ERP/Tally category split, material's
+vendor/material split, and (newly shown at all, matching the reconciliation view) Opening stock
+and Closing stock as their own lines with a material-by-material breakdown each, subcontractor/
+machinery/site's trade/equipment split, salary's role split, formwork's category split. Nothing
+computed changed - verified for Riverside/August that every printed total (Total revenue,
+Total cost, Profit/Loss, Margin) came back byte-identical to before this round, with the sheet
+simply 53 rows longer (26 to 79) carrying the same detail the working-paper view already had,
+laid out without its audit columns. Selftest stayed 12/12.
+
+### Decided: no shared "Project outcomes" overview sheet once more than one project is in scope
+
+Immediate follow-up on "one sheet per project": that round still kept a shared "Project
+outcomes" sheet in front of the per-project sheets, carrying the company-wide summary table -
+redundant once "Financial outcome" (kept last in the workbook) already states the portfolio
+totals, and not what was asked for. The ask: no separate overview sheet at all, each project's
+own sheet doubling as its own "project outcomes" page, and the single portfolio-wide outcome
+sheet last.
+
+`_summary_row` is the one project-row-of-the-summary-table renderer, factored out of the old
+company-wide loop so it can be reused rather than copied. `_project_outcomes` now branches
+sooner: one project in scope still gets exactly the old single-sheet shape (its own summary row
++ TOTAL row, unchanged, then its detail inline - nothing about the common case moved). More
+than one project skips the shared sheet entirely - each project's own sheet opens with its own
+one-row summary (via `_summary_row`, not the portfolio TOTAL) and its own detail block right
+below it, and the first project's sheet takes over `wb.active` (the `first=True` slot the old
+overview sheet used to occupy) so the workbook still opens on real content, not a blank default
+tab. "Financial outcome" is unchanged and already written last in the driver's per-month loop,
+so for the common case (one month, several projects) it lands as the last sheet exactly as
+asked. Verified live for August, all three projects: the workbook now opens as
+["Riverside Towers - Manapakkam", "Tidel Park Block C - Taramani", "ORR Flyover Package 3",
+"Financial outcome"] - no overview sheet, each project's own sheet self-contained, portfolio
+outcome last - and a single-project download re-checked unchanged (still "Project outcomes" +
+"Financial outcome", same as every prior round). Selftest stayed 12/12.
+
 ## Repo map
 
 ```

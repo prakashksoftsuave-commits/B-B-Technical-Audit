@@ -12,8 +12,8 @@ import os
 import threading
 
 from .core import config as C
-from .core import (decisions, fabricate, finalization, inbox as IB, mailbox, outcome, remind,
-                    tracker, workbook)
+from .core import (activity, decisions, fabricate, finalization, inbox as IB, mailbox, outcome,
+                    remind, tracker, workbook)
 
 
 class NotRunYet(RuntimeError):
@@ -53,7 +53,14 @@ def health():
 def _load_vouchers(offline):
     from .core import tally_io as T
     if not offline and T.available():
-        vs = T.fetch_vouchers(*T.WINDOW)
+        try:
+            vs = T.fetch_vouchers(*T.WINDOW)
+        except T.TallyDown:
+            # available() is a trivial 8s probe - it can pass while the real voucher export
+            # (heavier, and this gateway is a single shared instance - see TALLY_NOTES.md on
+            # contention) then stalls past its own timeout. Same fallback as "no live data"
+            # below, not an unhandled 500 after the caller already waited on it.
+            vs = []
         if vs:
             return vs, f"live Tally ({C.TALLY_COMPANY})"
     if not os.path.exists(C.TALLY_SNAPSHOT):
@@ -167,6 +174,12 @@ _MAIL_BREAKDOWN = {"hr_salary": C.SALARY_ROLES, "work_done": C.WORK_CATEGORIES,
                     "formwork": C.FORMWORK_CATEGORIES}
 
 
+def _erp_module_label(module):
+    # module is e.g. "MMS" or "WBM/work" - C.ERP_MODULES is keyed by the bare module code, so
+    # look up the part before the slash, if any. Falls back to the raw code for anything unknown.
+    return C.ERP_MODULES.get(module.split("/")[0], {}).get("label", module)
+
+
 def _lineage(res):
     out = []
     for d in res["erp_detail"]:
@@ -175,18 +188,21 @@ def _lineage(res):
                     "monthLabel": C.month_label(d["month"]),
                     "label": C.LINE_LABEL.get(d["line"], d["line"]),
                     "amount": round(d["amount"]), "ref": d["ref"],
-                    "description": d["description"]})
+                    "description": d["description"], "date": d.get("date"),
+                    "moduleLabel": _erp_module_label(d["module"])})
     for d in res["tally_detail"]:
         out.append({"source": "Tally", "project": d["project"],
                     "projectName": _pname(d["project"]), "month": d["month"],
                     "monthLabel": C.month_label(d["month"]),
                     "label": C.LINE_LABEL.get(d["line"], d["line"]),
                     "amount": round(d["amount"]), "ref": d["ref"],
-                    "description": f"{d['ledger']} — {d['description']}"})
+                    "description": f"{d['ledger']} — {d['description']}",
+                    "date": d.get("date"), "ledger": d["ledger"]})
     for i in res["inbox"]:
         base = {"project": i["project"], "projectName": _pname(i["project"]),
                 "month": i["month"], "monthLabel": C.month_label(i["month"]),
-                "ref": _d(i["arrived"]),
+                "ref": _d(i["arrived"]), "date": _d(i["arrived"]),
+                "sender": i["sender"], "subject": i["subject"], "attachmentId": i["path"],
                 # R1's two signals: which one actually identified the project for this mail,
                 # and whether they disagreed when both were checkable.
                 "routedBy": i.get("routedBy"), "senderMismatch": i.get("senderMismatch", False)}
@@ -394,6 +410,10 @@ def _build_state(vouchers, source, mail, as_of_date, write_workbook):
         "check": {"checks": chk["checks"], "worst": round(chk["worst"]),
                   "tolerance": C.GATE_TOLERANCE, "passed": chk["passed"],
                   "failed": chk["failed"]},
+        "activity": [{"ts": a["ts"], "kind": a["kind"], "title": a["title"], "detail": a["detail"],
+                      "project": a["project"],
+                      "projectName": _pname(a["project"]) if a["project"] else None,
+                      "tone": a["tone"]} for a in activity.recent(20)],
     }
     return _state
 
@@ -421,6 +441,12 @@ def run(offline=False, as_of=None, write_workbook=True, fetch_mail=True):
                       else dt.date.today())
         _cached = {"vouchers": vouchers, "source": source, "mail": mail,
                    "as_of_date": as_of_date, "write_workbook": write_workbook}
+        # Recorded before _build_state reads activity.recent() back, so this same run's own
+        # entry is already there when the caller gets its state - not one run behind.
+        detail = f"{len(vouchers)} vouchers read"
+        if mail.get("fetched"):
+            detail += f", {mail['fetched']} new return{'s' if mail['fetched'] != 1 else ''}"
+        activity.record("sync", "Monthly sync completed", detail=detail, tone="ok")
         return _build_state(vouchers, source, mail, as_of_date, write_workbook)
 
 
@@ -433,6 +459,11 @@ def apply_decision(project, month, line, choice, amount=None, note="", decided_b
         raise NotRunYet("Nothing has been read yet.")
     with _lock:
         decisions.record(project, month, line, choice, amount, note, decided_by)
+        choice_label = {"erp": "ERP", "tally": "Tally", "mail": "Mail",
+                        "custom": "a custom value"}.get(choice, choice)
+        activity.record("decision", f"{C.LINE_LABEL.get(line, line)} approved — {choice_label}",
+                        detail=f"{_pname(project)} · {C.month_label(month)}",
+                        project=project, tone="info")
         c = _cached
         return _build_state(c["vouchers"], c["source"], c["mail"], c["as_of_date"],
                              c["write_workbook"])
@@ -462,6 +493,8 @@ def finalize_month(project, month, finalized_by=""):
         snapshot = outcome.snapshot_for_finalization(res["rows"], res["adjustments"],
                                                        project, month)
         finalization.finalize(project, month, snapshot, finalized_by)
+        activity.record("finalize", f"{_pname(project)} finalized", detail=C.month_label(month),
+                        project=project, tone="ok")
         return _build_state(c["vouchers"], c["source"], c["mail"], c["as_of_date"],
                              c["write_workbook"])
 
@@ -471,6 +504,8 @@ def reopen_month(project, month, reopened_by=""):
         raise NotRunYet("Nothing has been read yet.")
     with _lock:
         finalization.reopen(project, month, reopened_by)
+        activity.record("reopen", f"{_pname(project)} reopened", detail=C.month_label(month),
+                        project=project, tone="warn")
         c = _cached
         return _build_state(c["vouchers"], c["source"], c["mail"], c["as_of_date"],
                              c["write_workbook"])
@@ -498,15 +533,21 @@ def finalize_all_ready(month, finalized_by=""):
                                                            code, month)
             finalization.finalize(code, month, snapshot, finalized_by)
             finalized.append(code)
+        if finalized:
+            names = ", ".join(_pname(code) for code in finalized)
+            activity.record("finalize", f"{len(finalized)} project(s) finalized",
+                            detail=f"{names} · {C.month_label(month)}", tone="ok")
         state = _build_state(c["vouchers"], c["source"], c["mail"], c["as_of_date"],
                               c["write_workbook"])
         return {**state, "finalizedProjects": finalized, "skippedProjects": skipped}
 
 
-def filtered_report(project=None, month=None):
-    """A workbook scoped to one project and/or month, for the Excel download to respect
-    whatever the Consolidation screen's filter is showing - built fresh from the cached sources
-    (no network) rather than reusing the always-unfiltered file the last full run wrote.
+def filtered_report(project=None, month=None, month_to=None):
+    """A workbook scoped to one project and/or a month range, for the Excel download to respect
+    whatever the Download popup's own filter is showing - built fresh from the cached sources
+    (no network) rather than reusing the always-unfiltered file the last full run wrote. A range
+    (month_to set and different from month) bundles one sheet pair per month, not a cross-month
+    aggregate - see workbook.write()'s own docstring for why.
     """
     if _cached is None:
         raise NotRunYet("Nothing has been read yet.")
@@ -514,7 +555,45 @@ def filtered_report(project=None, month=None):
     ran_at = dt.datetime.now().isoformat(timespec="seconds")
     path = os.path.join(C.BASE, "_report_filtered.xlsx")
     return workbook.write(res, None, [], {}, path=path, meta={"ranAt": ran_at},
-                           project=project, month=month)
+                           project=project, month=month, month_to=month_to)
+
+
+def mail_attachment(attachment_id):
+    """Resolve a lineage row's attachmentId to the real .eml file it came from, for the Source
+    Data drawer's "Document" link on a mail record - the one real, on-disk artifact this system
+    has, as opposed to a fabricated filename. attachment_id is a path handed back to the client
+    by _lineage() and returned to us here, so it must be checked against C.EMAIL_DIR before
+    anything touches the filesystem with it.
+    """
+    real = os.path.realpath(attachment_id)
+    root = os.path.realpath(C.EMAIL_DIR)
+    if not (real == root or real.startswith(root + os.sep)) or not os.path.isfile(real):
+        raise ValueError("not a known attachment")
+    return real
+
+
+def mail_evidence(attachment_id):
+    """Real From/To/Subject/body/attachment facts for one mail-sourced record's evidence card -
+    see core/evidence.py for what "real" means here."""
+    from .core import evidence
+    return evidence.read_email(evidence.resolve(attachment_id))
+
+
+def mail_attachment_bytes(attachment_id, index):
+    """One real attachment's bytes + filename + mime, by index, for the Document Viewer's
+    Download/Open-in-new-tab/embedded-preview actions - generic over mime type."""
+    from .core import evidence
+    return evidence.read_attachment_bytes(evidence.resolve(attachment_id), index)
+
+
+def mail_spreadsheet(attachment_id, index):
+    """The real sheet/row/cell grid behind one xlsx attachment, for the spreadsheet viewer."""
+    from .core import evidence
+    path = evidence.resolve(attachment_id)
+    att = evidence.read_attachment_bytes(path, index)
+    if att["mime"] != evidence.XLSX_MIME and not att["filename"].lower().endswith(".xlsx"):
+        raise ValueError("not a spreadsheet")
+    return evidence.read_spreadsheet(att["payload"])
 
 
 def generate(push_tally=True):
@@ -555,6 +634,8 @@ def send_reminder(project, month, sent_by=None):
         raise ValueError(f"nothing outstanding for {project} in {C.month_label(month)}")
     sent = remind.send(items[0]["to"], items[0]["projectName"], block["monthLabel"],
                         [c["line"] for c in items], sent_by=sent_by)
+    activity.record("reminder", f"Reminder sent — {items[0]['projectName']}",
+                    detail=f"{sent['to']} · {block['monthLabel']}", project=project, tone="info")
     return {**sent, "project": project, "month": month, "count": len(items)}
 
 

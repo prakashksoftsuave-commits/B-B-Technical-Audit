@@ -10,18 +10,41 @@ If frontend/dist exists it is served at / so the whole thing runs from one proce
 development the Vite server on :5173 talks to this over CORS instead.
 """
 import os
+import re
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import service
 from .core import config as C
 
+
+@asynccontextmanager
+async def _lifespan(_app):
+    # Auto-load the last dataset once at boot, so a process restart (a redeploy, a crash, a
+    # `docker compose restart`) doesn't leave the console stuck on "Nothing read yet" until a
+    # person notices and clicks Read the sources - _state is only ever in memory (service.py),
+    # so it starts empty every single time the process does, deployed or not. fetch_mail=False:
+    # a slow or unreachable mailbox must never delay the app coming up, Sync and the background
+    # poll pick mail up normally moments later. Silently skipped if the dataset was never
+    # generated yet (first boot before --generate) or if Tally/ERP briefly aren't ready at this
+    # exact moment - same "nothing to show" as before, just no longer something that needs a
+    # person to fix by hand after every restart.
+    if os.path.exists(C.ERP_DB):
+        try:
+            service.run(fetch_mail=False)
+        except Exception:
+            pass
+    yield
+
+
 app = FastAPI(title="Monthly Outcome", version="1.0.0",
-              description="Technical Audit - monthly outcome and profitability reporting.")
+              description="Technical Audit - monthly outcome and profitability reporting.",
+              lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -71,10 +94,16 @@ def post_generate(push_tally: bool = Query(True, description="push vouchers to l
 
 @app.post("/api/mail/fetch", tags=["pipeline"])
 def post_mail_fetch():
-    """Pull new returns from the mailbox without rebuilding the report."""
+    """Pull new returns from the mailbox without rebuilding the report.
+
+    This is the background poll's endpoint (App.jsx fires it every 45s regardless of whether
+    the last call finished). wait=False so an overlapping poll skips instead of queuing behind
+    an in-progress fetch - Sync (service.run(), a separate call into mailbox.fetch()) is the
+    one path that must always actually wait and run.
+    """
     from .core import mailbox
     try:
-        return mailbox.fetch()
+        return mailbox.fetch(wait=False)
     except mailbox.MailboxError as e:
         raise HTTPException(502, str(e)) from e
 
@@ -135,6 +164,13 @@ def get_submission():
     return _slice("submission")
 
 
+@app.get("/api/activity", tags=["report"])
+def get_activity():
+    """Recent real events - sync, decisions, finalize/reopen, reminders sent. Never fabricated;
+    each entry is written at the moment the action it describes actually completed."""
+    return _slice("activity")
+
+
 @app.get("/api/reminders", tags=["report"])
 def get_reminders():
     """The chase schedule and chase list. GET sends nothing - see POST /api/reminders/send."""
@@ -174,6 +210,57 @@ def get_adjustments():
 @app.get("/api/lineage", tags=["report"])
 def get_lineage():
     return _slice("lineage")
+
+
+@app.get("/api/mail/attachment", tags=["report"])
+def get_mail_attachment(id: str = Query(..., description="a lineage row's attachmentId")):
+    """The real .eml file a mail-sourced source record came from - the Source Data drawer's
+    Document link. 404 if the id doesn't resolve to a real file under the inbox folder."""
+    try:
+        path = service.mail_attachment(id)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    return FileResponse(path, filename=os.path.basename(path), media_type="message/rfc822")
+
+
+@app.get("/api/evidence/mail", tags=["report"])
+def get_mail_evidence(id: str = Query(..., description="a lineage row's attachmentId")):
+    """Real From/To/Subject/body/attachment facts for one mail-sourced record - the Source Data
+    drawer's evidence viewer. 404 if the id doesn't resolve to a real file under the inbox
+    folder."""
+    try:
+        return service.mail_evidence(id)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@app.get("/api/evidence/mail/attachment", tags=["report"])
+def get_mail_evidence_attachment(id: str = Query(..., description="a lineage row's attachmentId"),
+                                  index: int = Query(0),
+                                  download: bool = Query(False, description="force a download "
+                                                          "instead of an inline/embedded view")):
+    """One real attachment's bytes, by index - generic over mime type, so the Document Viewer's
+    spreadsheet/PDF/image paths and its Download/Open-in-new-tab actions all read from this one
+    endpoint. 404 on an unknown id or an out-of-range index."""
+    try:
+        att = service.mail_attachment_bytes(id, index)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    disposition = "attachment" if download else "inline"
+    return Response(content=att["payload"], media_type=att["mime"], headers={
+        "Content-Disposition": f'{disposition}; filename="{att["filename"]}"'})
+
+
+@app.get("/api/evidence/mail/spreadsheet", tags=["report"])
+def get_mail_evidence_spreadsheet(id: str = Query(..., description="a lineage row's attachmentId"),
+                                   index: int = Query(0)):
+    """The real sheet/row/cell grid behind one xlsx attachment - read with openpyxl, the same
+    library this project already uses for every other Excel touch-point. 404 if the id/index
+    doesn't resolve to a real spreadsheet attachment."""
+    try:
+        return service.mail_spreadsheet(id, index)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
 
 
 @app.get("/api/rules", tags=["report"])
@@ -292,14 +379,24 @@ def post_selftest():
 
 @app.get("/api/report.xlsx", tags=["report"])
 def get_report(project: str | None = Query(None, description="one project code, or all"),
-               month: str | None = Query(None, description="YYYY-MM, or the latest sampled")):
-    if project or month:
+               month: str | None = Query(None, description="YYYY-MM (from), or the latest sampled"),
+               monthTo: str | None = Query(None, description="YYYY-MM (to, inclusive) - "
+                                            "a range end; omit for a single month")):
+    if project or month or monthTo:
         try:
-            path = service.filtered_report(project, month)
+            path = service.filtered_report(project, month, monthTo)
         except service.NotRunYet as e:
             raise HTTPException(409, str(e)) from e
+        # A specific project's own name in the filename, not just the generic report name -
+        # so downloading Riverside's report and Tidel's report a minute apart doesn't leave two
+        # files both called "Monthly_Outcome_Report.xlsx" in the same Downloads folder.
+        filename = "Monthly_Outcome_Report"
+        if project:
+            p = C.BY_CODE.get(project)
+            slug = re.sub(r"[^A-Za-z0-9]+", "_", (p["tally"] if p else project)).strip("_")
+            filename += f"_{slug}"
         return FileResponse(
-            path, filename="Monthly_Outcome_Report.xlsx",
+            path, filename=f"{filename}.xlsx",
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     if not os.path.exists(C.REPORT_XLSX):
         raise HTTPException(404, "No workbook yet. Run the pipeline first.")

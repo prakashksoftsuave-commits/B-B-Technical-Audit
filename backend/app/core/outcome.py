@@ -107,7 +107,8 @@ def tally_totals(vouchers, fired):
             totals[(code, month, line)] += amt
             detail.append({"project": code, "month": month, "line": line, "amount": amt,
                            "source": "Tally", "ledger": ln["ledger"], "ref": v["number"],
-                           "description": C.strip_tag(v["narration"])})
+                           "description": C.strip_tag(v["narration"]),
+                           "date": f"{v['date'][:4]}-{v['date'][4:6]}-{v['date'][6:8]}"})
 
     return dict(totals), unattributed, detail
 

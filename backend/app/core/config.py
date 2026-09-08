@@ -48,6 +48,7 @@ GROUND_TRUTH = os.path.join(BASE, "ground_truth.json")
 REPORT_XLSX = os.path.join(BASE, "Monthly_Outcome_Report.xlsx")
 AUDIT_DECISIONS = os.path.join(BASE, "audit_decisions.json")
 FINALIZATIONS = os.path.join(BASE, "finalizations.json")
+ACTIVITY_LOG = os.path.join(BASE, "activity_log.json")
 
 TALLY_URL = "http://localhost:9000"
 TALLY_COMPANY = "Tally Integration POC"

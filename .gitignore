@@ -11,3 +11,11 @@ __pycache__/
 # frontend
 frontend/node_modules/
 frontend/dist/
+
+# local runtime logs (uvicorn stdout/stderr redirected during manual dev runs)
+backend.out.log
+backend.err.log
+
+# a local Tally Prime install's own company data folder (its numeric company-id directory),
+# not something this repo should ever track - found sitting at repo root, not a build artifact
+100000/

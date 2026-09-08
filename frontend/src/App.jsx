@@ -1,25 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { FilterChip } from './components/Bits'
-import { IconBell, IconDown, IconHome, IconRefresh, IconStatement, IconTrace }
+import { IconBars, IconBell, IconDown, IconHome, IconRefresh, IconStatement, IconTrace }
   from './components/Icons'
+import { timeAgo } from './utils'
 import Home from './views/Home'
 import Consolidation from './views/Consolidation'
 import Lineage from './views/Lineage'
-
-// "Last synchronized: 1 minute ago" - relative, so it needs a live clock, not just a one-time
-// computation at render. Falls back to plain seconds/minutes/hours/days, no library.
-function timeAgo(iso, now) {
-  if (!iso) return null
-  const secs = Math.max(0, Math.floor((now - new Date(iso)) / 1000))
-  if (secs < 5) return 'just now'
-  if (secs < 60) return `${secs}s ago`
-  const mins = Math.floor(secs / 60)
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
 
 // "Riverside Towers - Manapakkam · RA bill certified (Aug 2026)" instead of the raw subject
 // line - parsed server-side the same way inbox.py itself will route it, so what the bell says
@@ -70,7 +57,11 @@ export default function App() {
   // happens to be showing - a popup, not a read of the page's live state.
   const [downloadOpen, setDownloadOpen] = useState(false)
   const [dlProj, setDlProj] = useState('all')
-  const [dlMonth, setDlMonth] = useState('all')
+  // A range, not a single pick - null until touched, so the default (both ends = the latest
+  // sampled month) tracks whatever the dataset currently is instead of freezing at whatever
+  // month existed when this component first mounted.
+  const [dlMonthFrom, setDlMonthFrom] = useState(null)
+  const [dlMonthTo, setDlMonthTo] = useState(null)
   // Each view owns its own filter state, but the controls render up here, in the space beside
   // the page title - a portal target rather than lifted state, so views stay self-contained.
   const [filterHost, setFilterHost] = useState(null)
@@ -79,6 +70,11 @@ export default function App() {
   // view reads it once in its own useState initializer, then this clears itself so a later
   // plain nav-bar click doesn't reapply a stale filter.
   const [navFocus, setNavFocus] = useState(null)
+  // A simple back-stack of view ids, one entry per real navigation (not every render) - lets
+  // any page-to-page link (Home's cards, Financial Outcome's Trace source, Source Data's View
+  // in Financial Outcome) get a genuine "go back to where I actually came from" instead of a
+  // hardcoded "back to Home" that would be wrong for a Source Data -> Financial Outcome hop.
+  const [navHistory, setNavHistory] = useState([])
   // New-mail notification: a count + the parsed arrivals behind it, built up from background
   // polls and cleared the moment Sync folds them into a real run. Sync itself also fetches
   // mail, so this is purely "something landed since you last looked", never a second source
@@ -88,8 +84,21 @@ export default function App() {
   const bellRef = useRef(null)
 
   const onNavigate = useCallback((id, focus) => {
+    // A no-op link to the page already showing (e.g. re-clicking the active nav tab) is not a
+    // real hop - pushing it would make Back bounce in place instead of actually going back.
+    setNavHistory((h) => (id === view ? h : [...h, view]))
     setView(id)
     if (focus) setNavFocus(focus)
+  }, [view])
+
+  // Pops one entry rather than pushing a matching "forward" one - this is a breadcrumb trail
+  // back up the chain a reader actually clicked through, not a full browser-style history.
+  const goBack = useCallback(() => {
+    setNavHistory((h) => {
+      if (!h.length) return h
+      setView(h[h.length - 1])
+      return h.slice(0, -1)
+    })
   }, [])
 
   useEffect(() => { if (navFocus) setNavFocus(null) }, [view])
@@ -149,9 +158,18 @@ export default function App() {
   // it only pulls new messages into the folder (mailbox.fetch() itself dedupes them), Sync is
   // still the one thing that folds them into a figure. Also fires a corner toast, not just the
   // bell badge - a badge is easy to miss entirely if no one happens to look at the nav rail.
+  const pollBusy = useRef(false)
   useEffect(() => {
     if (!health?.mailboxConfigured) return undefined
     const poll = async () => {
+      // setInterval fires every 45s regardless of whether the last poll finished, and
+      // visibilitychange can fire on top of that - without this guard, overlapping calls each
+      // wait their own turn behind the mailbox's fetch lock, and a Sync click can land at the
+      // back of a queue several polls deep instead of behind at most one real fetch. The
+      // backend also skips (wait=False) rather than queues for this same reason - belt and
+      // braces, since a second browser tab polling on its own timer would only be caught here.
+      if (pollBusy.current) return
+      pollBusy.current = true
       try {
         const r = await api.fetchMail()
         if (r.fetched > 0) {
@@ -163,7 +181,10 @@ export default function App() {
           pushToast(`${r.fetched} new return${r.fetched === 1 ? '' : 's'} received`
             + (arrived.length ? `: ${arrived.map(describeArrival).join('; ')}` : ''))
         }
-      } catch { /* a poll failing is not worth surfacing - Sync reports mail errors properly */ }
+      } catch { /* a poll failing is not worth surfacing - Sync reports mail errors properly */
+      } finally {
+        pollBusy.current = false
+      }
     }
     const id = setInterval(poll, 45000)
     // Most browsers throttle or fully pause setInterval in a backgrounded tab, so a poll timed
@@ -205,16 +226,25 @@ export default function App() {
 
   // Deliberately independent of whatever Financial Outcome is currently filtered to - the
   // popup's own choice is the only thing that decides what gets downloaded.
+  const dlMonthOptions = state?.masters?.months || []
+  const dlLatestMonth = dlMonthOptions.length ? dlMonthOptions[dlMonthOptions.length - 1].key : ''
+  const dlFrom = dlMonthFrom || dlLatestMonth
+  const dlTo = dlMonthTo || dlLatestMonth
+
   const downloadParams = new URLSearchParams()
   if (dlProj !== 'all') downloadParams.set('project', dlProj)
-  if (dlMonth !== 'all') downloadParams.set('month', dlMonth)
+  if (dlFrom) downloadParams.set('month', dlFrom)
+  if (dlTo && dlTo !== dlFrom) downloadParams.set('monthTo', dlTo)
   const downloadHref = downloadParams.toString() ? `${api.reportUrl}?${downloadParams}` : api.reportUrl
 
   return (
     <div className="shell">
       <div className="nav-rail">
         <nav className="nav" aria-label="Sections">
-          <div className="brand">Monthly<i>Outcome</i></div>
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true"><IconBars /></span>
+            Monthly<i>Outcome</i>
+          </div>
 
           <div className="nav-links">
             {VIEWS.map(({ id, label, Icon, count, hot }) => {
@@ -304,6 +334,11 @@ export default function App() {
       <main className="band col" id={`tab-${view}`}>
         <div className="pagetitle">
           <div>
+            {navHistory.length > 0 && (
+              <button type="button" className="project-back" onClick={goBack}>
+                ← Back to {VIEWS.find((v) => v.id === navHistory[navHistory.length - 1])?.label}
+              </button>
+            )}
             <h1>{active.title}</h1>
             <p className="lede">{active.lede}</p>
           </div>
@@ -376,15 +411,27 @@ export default function App() {
               <FilterChip label="Project" value={dlProj} onChange={(e) => setDlProj(e.target.value)}
                           options={[{ value: 'all', label: 'All projects' },
                             ...state.masters.projects.map((p) => ({ value: p.code, label: p.name }))]} />
-              <FilterChip label="Month" value={dlMonth} onChange={(e) => setDlMonth(e.target.value)}
-                          options={[{ value: 'all', label: 'All months (this sample)' },
-                            ...state.masters.months.map((m) => ({ value: m.key, label: m.label }))]} />
+              <FilterChip label="From month" value={dlFrom}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setDlMonthFrom(v)
+                            if (v > dlTo) setDlMonthTo(v)
+                          }}
+                          options={dlMonthOptions.map((m) => ({ value: m.key, label: m.label }))} />
+              <FilterChip label="To month" value={dlTo}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setDlMonthTo(v)
+                            if (v < dlFrom) setDlMonthFrom(v)
+                          }}
+                          options={dlMonthOptions.map((m) => ({ value: m.key, label: m.label }))} />
             </div>
             <div className="modal-actions">
               <button type="button" className="btn btn-quiet btn-sm" onClick={() => setDownloadOpen(false)}>
                 Cancel
               </button>
-              <a className="btn btn-ink btn-sm" href={downloadHref} onClick={() => setDownloadOpen(false)}>
+              <a className="btn btn-ink btn-sm" href={downloadHref} download
+                 onClick={() => setDownloadOpen(false)}>
                 <IconDown />
                 Download
               </a>
