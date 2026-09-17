@@ -47,6 +47,10 @@ def health():
         "snapshot": os.path.exists(C.TALLY_SNAPSHOT),
         "report": os.path.exists(C.REPORT_XLSX),
         "dataDir": C.BASE, "hasRun": _state is not None,
+        # The persisted backlog (mailbox.pending_arrivals), not a per-poll ephemeral value - a
+        # freshly loaded or refreshed tab sees it immediately, on its very first health check,
+        # rather than waiting for its own first 45s poll to maybe re-discover it.
+        "pendingArrivals": mailbox.pending_arrivals(),
     }
 
 
@@ -447,7 +451,13 @@ def run(offline=False, as_of=None, write_workbook=True, fetch_mail=True):
         if mail.get("fetched"):
             detail += f", {mail['fetched']} new return{'s' if mail['fetched'] != 1 else ''}"
         activity.record("sync", "Monthly sync completed", detail=detail, tone="ok")
-        return _build_state(vouchers, source, mail, as_of_date, write_workbook)
+        state = _build_state(vouchers, source, mail, as_of_date, write_workbook)
+        # Whatever is currently in the inbox - including anything the background poll caught
+        # earlier and nobody had synced yet - is reflected in the report this just built
+        # (outcome.build() reads the whole inbox tree regardless of fetch_mail), so the
+        # "something's arrived, not yet in the figures" backlog is no longer true.
+        mailbox.acknowledge_pending()
+        return state
 
 
 def apply_decision(project, month, line, choice, amount=None, note="", decided_by=""):

@@ -48,10 +48,10 @@ export default function App() {
   // (Home's Evidence status, Financial Outcome's per-line hover), so the confirmation lives
   // once here rather than being built twice.
   const [toasts, setToasts] = useState([])
-  const pushToast = useCallback((text, tone = 'ok') => {
+  const pushToast = useCallback((text, tone = 'ok', durationMs = 4000) => {
     const id = `${Date.now()}-${Math.random()}`
     setToasts((prev) => [...prev, { id, text, tone }])
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000)
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), durationMs)
   }, [])
   // Download's own filter choice is deliberately independent of whatever Financial Outcome
   // happens to be showing - a popup, not a read of the page's live state.
@@ -104,7 +104,15 @@ export default function App() {
   useEffect(() => { if (navFocus) setNavFocus(null) }, [view])
 
   const refreshHealth = useCallback(async () => {
-    try { setHealth(await api.health()) } catch { setHealth(null) }
+    try {
+      const h = await api.health()
+      setHealth(h)
+      // The persisted backlog (mailbox.pending_arrivals), not a per-poll ephemeral value - a
+      // freshly loaded or refreshed tab sees it immediately on its very first health check,
+      // rather than waiting on its own first 45s poll to maybe rediscover it.
+      const pending = h.pendingArrivals || []
+      setNewMail({ count: pending.length, arrivals: [...pending].reverse().slice(0, 20) })
+    } catch { setHealth(null) }
   }, [])
 
   // A ref, not the `busy` state, guards re-entrancy - `doRun` is memoized once via
@@ -172,15 +180,22 @@ export default function App() {
       pollBusy.current = true
       try {
         const r = await api.fetchMail()
-        if (r.fetched > 0) {
-          setNewMail((prev) => ({
-            count: prev.count + r.fetched,
-            arrivals: [...(r.arrivals || []), ...prev.arrivals].slice(0, 20),
-          }))
-          const arrived = r.arrivals || []
-          pushToast(`${r.fetched} new return${r.fetched === 1 ? '' : 's'} received`
-            + (arrived.length ? `: ${arrived.map(describeArrival).join('; ')}` : ''))
-        }
+        // The full persisted backlog, not just this call's own delta - whichever request
+        // actually catches a new arrival, every poll afterward (this tab, another tab, a much
+        // later one) reports the same true count, so a badge can no longer be missed just
+        // because a different overlapping request happened to be the one that caught it.
+        const pending = r.pendingArrivals || []
+        setNewMail((prev) => {
+          if (pending.length > prev.count) {
+            const fresh = pending.slice(prev.count)
+            const freshCount = fresh.length
+            // Longer than the default toast - this is the one notification a demo genuinely
+            // must not let slide by unnoticed.
+            pushToast(`${freshCount} new return${freshCount === 1 ? '' : 's'} received`
+              + `: ${fresh.map(describeArrival).join('; ')}`, 'ok', 10000)
+          }
+          return { count: pending.length, arrivals: [...pending].reverse().slice(0, 20) }
+        })
       } catch { /* a poll failing is not worth surfacing - Sync reports mail errors properly */
       } finally {
         pollBusy.current = false

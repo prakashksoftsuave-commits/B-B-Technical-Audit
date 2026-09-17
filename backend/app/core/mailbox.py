@@ -40,6 +40,16 @@ FETCH_DIR = os.path.join(C.EMAIL_DIR, "_fetched")
 # calls always sees what the first one just saved.
 _lock = threading.Lock()
 SEEN_FILE = os.path.join(C.BASE, "fetched_message_ids.json")
+# A real arrival is otherwise only ever visible in the one HTTP response of whichever request
+# happened to be the one that caught it - every other poll (another tab, the 45s timer firing a
+# moment later, visibilitychange firing on every tab-switch) sees it as already-seen and reports
+# nothing. Found live: a mail arrived, got fetched fine, but the toast/bell was only ever in the
+# response of one lucky request among many firing within seconds of each other, and was missed.
+# This file makes "something arrived, not yet synced" real, persisted, server-side state -
+# anyone checking in afterward (any tab, any poll, however late) sees the same true backlog,
+# not just whoever happened to win the race. Cleared only when Sync actually folds it into a
+# real run (`acknowledge_pending`), matching "notify on arrival, only update figures on Sync."
+PENDING_FILE = os.path.join(C.BASE, "pending_arrivals.json")
 
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -92,6 +102,34 @@ def _seen():
 def _remember(ids):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
         json.dump(sorted(ids), f, indent=1)
+
+
+def pending_arrivals():
+    """The true, persisted backlog of returns fetched since the last Sync - not just whatever
+    one lucky request happened to catch. Safe to call as often as wanted; read-only."""
+    if not os.path.exists(PENDING_FILE):
+        return []
+    try:
+        with open(PENDING_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (ValueError, OSError):
+        return []
+
+
+def _add_pending(arrivals):
+    if not arrivals:
+        return
+    current = pending_arrivals()
+    current.extend(arrivals)
+    with open(PENDING_FILE, "w", encoding="utf-8") as f:
+        json.dump(current, f, indent=1)
+
+
+def acknowledge_pending():
+    """Sync just folded every currently-fetched return into a real run - the backlog notifying
+    about them is now stale, whichever tab or poll called Sync."""
+    if os.path.exists(PENDING_FILE):
+        os.remove(PENDING_FILE)
 
 
 def _filename(msg, n):
@@ -283,11 +321,12 @@ def _fetch_locked(limit=None):
             pass
 
     _remember(seen)
+    _add_pending(arrivals)
     return {"configured": True, "fetched": fetched, "skipped": skipped,
             "ignored": len(not_a_return), "ignoredFrom": sorted(set(not_a_return)),
             "failed": len(failed), "failedDetail": failed,
             "total": len(uids), "mailbox": cfg["user"], "folder": cfg["folder"],
-            "subjects": subjects, "arrivals": arrivals}
+            "subjects": subjects, "arrivals": arrivals, "pendingArrivals": pending_arrivals()}
 
 
 def forget():
