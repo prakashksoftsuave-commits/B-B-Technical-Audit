@@ -168,13 +168,20 @@ def import_vouchers(vouchers, batch=40):
 # ------------------------------------------------------------------ read back
 
 def _collection():
+    # Sync is an interactive button, not a batch job - post()'s own 180s default is sized for
+    # patient write operations (import_masters/import_vouchers during --generate), not for a
+    # read a person is sitting in front of waiting on. 30s is still generous for exporting this
+    # company's voucher collection; past that, Tally is genuinely stuck (or contended - see
+    # TALLY_NOTES.md on this being a shared, single instance) and the caller should hear about
+    # it quickly, not have the button spin for minutes with no feedback.
     return post(f"""<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>
 <TYPE>Collection</TYPE><ID>VchColl</ID></HEADER><BODY><DESC><STATICVARIABLES>
 <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
 <SVCURRENTCOMPANY>{esc(C.TALLY_COMPANY)}</SVCURRENTCOMPANY></STATICVARIABLES>
 <TDL><TDLMESSAGE><COLLECTION NAME="VchColl" ISMODIFY="No"><TYPE>Voucher</TYPE>
 <FETCH>Date,VoucherNumber,VoucherTypeName,PartyLedgerName,Narration</FETCH>
-<FETCH>AllLedgerEntries</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>""")
+<FETCH>AllLedgerEntries</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>""",
+                timeout=30)
 
 
 def _txt(el, tag):

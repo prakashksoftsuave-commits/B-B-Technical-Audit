@@ -65,3 +65,23 @@ export const IconBell = (p) => (
   <svg {...s(p)}><path d="M6 10a6 6 0 0112 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6z" />
     <path d="M10 20a2 2 0 004 0" /></svg>
 )
+export const IconClock = (p) => (
+  <svg {...s(p)}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg>
+)
+export const IconChevronDown = (p) => (
+  <svg {...s(p)}><path d="M5 8.5l7 7 7-7" /></svg>
+)
+export const IconBars = (p) => (
+  <svg {...s(p)}><path d="M5 19V10M12 19V5M19 19v-6" /></svg>
+)
+export const IconEye = (p) => (
+  <svg {...s(p)}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+    <circle cx="12" cy="12" r="3" /></svg>
+)
+export const IconTable = (p) => (
+  <svg {...s(p)}><rect x="3" y="4" width="18" height="16" rx="1.5" />
+    <path d="M3 10h18M3 15h18M9 4v16" /></svg>
+)
+export const IconChartBar = (p) => (
+  <svg {...s(p)}><path d="M4 20V10M10 20V4M16 20v-7M4 20h16" /></svg>
+)

@@ -1,17 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api'
 import DataTable from '../components/DataTable'
-import { Bar, Card, COST_COLORS, FilterChip, Legend, LOSS_COLOR, Pill, PROFIT_COLOR, Section,
-  Tally } from '../components/Bits'
-import { IconBuilding, IconCheck, IconCoins, IconGauge, IconInbox, IconPercent, IconReceipt,
-  IconScales, IconTrendUp } from '../components/Icons'
-import { compact, pct } from '../utils'
+import { Card, FilterChip, KpiCard, Pill, Section } from '../components/Bits'
+import { PerfChart, ProfitTrend } from '../components/Charts'
+import { IconBell, IconBuilding, IconCheck, IconClock, IconCoins, IconGauge, IconInbox,
+  IconPercent, IconReceipt, IconRefresh, IconScales, IconTrendUp } from '../components/Icons'
+import { compact, pct, timeAgo } from '../utils'
 
 /* The Finance Manager's morning read: portfolio position, which project needs attention, and
    whether the outcome is ready - all in numbers the Financial Outcome page already computed.
    Nothing here is a second calculation; every figure is read straight off position/cumulative/
-   unattributed/outstanding. Detailed ERP-vs-Tally reconciliation deliberately does not live
+   unattributed/counts/activity. Detailed ERP-vs-Tally reconciliation deliberately does not live
    here - that is Financial Outcome's job, one click away. */
 
 const STATUS_LABEL = { OPEN: 'Open', AUDIT_IN_PROGRESS: 'Audit in progress',
@@ -49,51 +49,20 @@ function projectRow(p, scoped) {
     impact: scoped.underReview || 0 }
 }
 
-// Sorted by profit, highest first, so "which project is winning" is the order you read top to
-// bottom rather than a comparison you have to do yourself across nine numbers. Margin sits
-// right next to the name for the same reason - the bars carry magnitude, the badge carries the
-// verdict. The bars are decorative once sorted: the group's own aria-label already states
-// revenue/cost/profit/margin as one sentence, so screen readers get that instead of nine
-// separately-announced mini-bars.
-function PerfChart({ rows }) {
+// Portfolio totals for one month, built from the exact same projectRow/aggregate rule the KPI
+// row and the project table both already use - called once per selected month, and again once
+// per sampled month for the trend chart, so "this month's total" and "one point on the trend"
+// can never quietly drift apart into two formulas.
+function portfolioFor(monthKey, scopedProjects, position, proj) {
+  const scoped = position.filter((p) => p.month === monthKey && (proj === 'all' || p.project === proj))
+  const rows = scopedProjects.map((p) => projectRow(p, scoped.find((r) => r.project === p.code)))
   const withData = rows.filter((r) => r.hasData)
-  const sorted = [...withData].sort((a, b) => (b.profit ?? -Infinity) - (a.profit ?? -Infinity))
-  const max = Math.max(1, ...withData.flatMap((r) => [r.revenue || 0, r.cost || 0, Math.abs(r.profit || 0)]))
-  return (
-    <div className="pad">
-      <Legend items={[
-        { color: 'var(--accent)', label: 'Revenue' },
-        { color: COST_COLORS.material, label: 'Cost' },
-        { color: PROFIT_COLOR, label: 'Profit' },
-      ]} />
-      <div className="perf-chart">
-        {sorted.map((r, i) => (
-          <div key={r.code}
-               className={`perf-group${i === 0 && r.profit > 0 ? ' leader' : ''}`}
-               role="group"
-               aria-label={`${r.name}: revenue ${compact(r.revenue)}, cost ${compact(r.cost)}, `
-                 + `profit ${compact(r.profit)}`
-                 + (r.margin !== null && r.margin !== undefined ? `, ${pct(r.margin)} margin` : '')}>
-            <div className="perf-group-head">
-              <h4 className="perf-group-label">{r.name}</h4>
-              {r.margin !== null && r.margin !== undefined && (
-                <span className="perf-group-margin">{pct(r.margin)} margin</span>
-              )}
-            </div>
-            <div className="bars" aria-hidden="true">
-              <Bar label="Revenue" max={max} value={compact(r.revenue)}
-                   parts={[{ value: r.revenue || 0, color: 'var(--accent)', label: 'Revenue' }]} />
-              <Bar label="Cost" max={max} value={compact(r.cost)}
-                   parts={[{ value: r.cost || 0, color: COST_COLORS.material, label: 'Cost' }]} />
-              <Bar label="Profit" max={max} value={compact(r.profit)}
-                   parts={[{ value: Math.abs(r.profit || 0),
-                     color: r.profit < 0 ? LOSS_COLOR : PROFIT_COLOR, label: 'Profit' }]} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
+  const tender = withData.reduce((s, r) => s + r.tender, 0)
+  const revenue = aggregate(withData, 'revenue')
+  const cost = withData.reduce((s, r) => s + r.cost, 0)
+  const profit = revenue === null ? null : revenue - cost
+  const margin = profit !== null && revenue ? Math.round((profit / revenue) * 10000) / 100 : null
+  return { rows, withData, tender, revenue, cost, profit, margin }
 }
 
 const SEVERITY_RANK = { bad: 0, warn: 1, info: 2, ok: 3 }
@@ -126,11 +95,45 @@ function AttentionCard({ tone, title, icon, figure, sub, detail, action, onActio
   )
 }
 
+const ACTIVITY_ICON = { sync: IconRefresh, decision: IconScales, finalize: IconCheck,
+  reopen: IconGauge, reminder: IconBell }
+const ACTIVITY_DOT = { ok: 'var(--ok-fg)', info: 'var(--info-fg)', warn: 'var(--warn-fg)',
+  bad: 'var(--bad-fg)' }
+
+// A real feed, not decoration: every row is something core/activity.py recorded at the moment
+// it actually happened (service.py's own hooks on run/decide/finalize/reopen/remind), never
+// invented copy - see the "Decided" note in CLAUDE.md this feature was built against.
+function ActivityFeed({ items, now }) {
+  if (!items.length) {
+    return <p className="dim-note" style={{ padding: '4px 0' }}>Nothing recorded yet this session.</p>
+  }
+  return (
+    <ul className="activity-feed">
+      {items.map((a, i) => {
+        const Icon = ACTIVITY_ICON[a.kind] || IconClock
+        return (
+          <li key={i}>
+            <span className="activity-icon" aria-hidden="true"><Icon /></span>
+            <div className="activity-body">
+              <div className="activity-title">{a.title}</div>
+              {a.detail && <div className="activity-detail">{a.detail}</div>}
+            </div>
+            <span className="activity-time">
+              <i style={{ background: ACTIVITY_DOT[a.tone] || 'var(--dust)' }} />
+              {timeAgo(a.ts, now)}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 const SUBMISSION_TONE = { late: 'warn', 'not received': 'bad', pending: 'info' }
 const SUBMISSION_LABEL = { late: 'Late', 'not received': 'Not received', pending: 'Not due yet' }
 
 export default function Home({ state, onNavigate, filterHost, onToast }) {
-  const { masters, position, unattributed, submission } = state
+  const { masters, position, unattributed, submission, counts, activity } = state
   const latest = masters.months.at(-1).key
   const [month, setMonth] = useState(latest)
   const [proj, setProj] = useState('all')
@@ -139,6 +142,11 @@ export default function Home({ state, onNavigate, filterHost, onToast }) {
   // "sent" is tracked per project-month, and clicking Remind on any row belonging to it marks
   // every row in that group sent, matching what the single mail actually covered.
   const [reminding, setReminding] = useState({})
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30000)
+    return () => clearInterval(id)
+  }, [])
 
   async function sendReminder(project, monthKey) {
     const key = `${project}|${monthKey}`
@@ -154,30 +162,35 @@ export default function Home({ state, onNavigate, filterHost, onToast }) {
   }
 
   const ownerLabel = Object.fromEntries(masters.inputs.map((i) => [i.kind, i.owner]))
-  const inMonth = (m) => m === null || m === month
   const inProject = (p) => proj === 'all' || p === proj
   const scopedProjects = proj === 'all' ? masters.projects
     : masters.projects.filter((p) => p.code === proj)
   const scopedRows = position.filter((p) => p.month === month && inProject(p.project))
 
-  const rows = scopedProjects.map((p) => projectRow(p, scopedRows.find((r) => r.project === p.code)))
-  const withData = rows.filter((r) => r.hasData)
+  const { rows, withData, tender, revenue, cost, profit, margin } =
+    useMemo(() => portfolioFor(month, scopedProjects, position, proj),
+      [month, scopedProjects, position, proj])
+  const portfolio = { tender, revenue, cost, profit, margin }
 
-  const portfolio = useMemo(() => {
-    const tender = withData.reduce((s, r) => s + r.tender, 0)
-    const revenue = aggregate(withData, 'revenue')
-    const cost = withData.reduce((s, r) => s + r.cost, 0)
-    const profit = revenue === null ? null : revenue - cost
-    const margin = profit && revenue ? Math.round((profit / revenue) * 10000) / 100 : null
-    return { tender, revenue, cost, profit, margin }
-  }, [withData])
+  // One point per sampled month, same rule as "this month" above - a genuine trend, not a
+  // second calculation. Recomputed only when the project filter or the source data changes,
+  // not on every month-selector click (the trend spans every month regardless of which one is
+  // "selected" for the KPI row).
+  const trendPoints = useMemo(() => masters.months.map((m) => {
+    const p = portfolioFor(m.key, scopedProjects, position, proj)
+    return { key: m.key, label: m.label, profit: p.profit, revenue: p.revenue, cost: p.cost,
+      margin: p.margin }
+  }), [masters.months, scopedProjects, position, proj])
+
+  const monthIdx = masters.months.findIndex((m) => m.key === month)
+  const prevPoint = monthIdx > 0 ? trendPoints[monthIdx - 1] : null
+  const prevMonthLabel = monthIdx > 0 ? masters.months[monthIdx - 1].label : null
+  const profitDeltaPct = prevPoint?.profit && portfolio.profit !== null
+    ? Math.round(((portfolio.profit - prevPoint.profit) / Math.abs(prevPoint.profit)) * 1000) / 10
+    : null
 
   const pendingCount = scopedRows.reduce((s, r) => s + r.pending.length, 0)
   const unresolvedImpact = scopedRows.reduce((s, r) => s + r.underReview, 0)
-  // Unassigned costs card retired for now - see the commented-out descriptor below for how to
-  // bring it back; state.unattributed is untouched, still read on Source Data.
-  // const unattr = unattributed.filter((u) => inMonth(u.month))
-  // const unattrTotal = unattr.reduce((s, u) => s + u.amount, 0)
   const readyRows = scopedRows.filter((r) => r.status === 'READY_FOR_FINALIZATION')
   // Not received AND late-but-received - the client's own loudest complaint was the follow-up,
   // not the arithmetic, so "evidence status" covers both, not just outright-missing returns.
@@ -198,6 +211,13 @@ export default function Home({ state, onNavigate, filterHost, onToast }) {
   const outcomeTone = overallStatus === 'FINALIZED' ? 'ok'
     : overallStatus === 'READY_FOR_FINALIZATION' ? 'info' : 'bad'
 
+  // Whatever generated the figure on this card is exactly whatever Home's own Project/Month
+  // filters are currently scoped to (scopedRows, above) - so the destination has to carry those
+  // same two values, not just drop the reader on Financial Outcome's own default month. Omitting
+  // `project` when "All projects" is selected lets that page fall back to its own "all" default
+  // rather than forcing a single project that was never actually selected here.
+  const financialFocus = proj === 'all' ? { month } : { project: proj, month }
+
   // Whatever needs attention most sits first - a red card with real decisions pending should
   // never sit below a green "Clear" one just because of source order in the JSX.
   const attentionCards = [
@@ -210,23 +230,8 @@ export default function Home({ state, onNavigate, filterHost, onToast }) {
         : 'No ERP/Tally differences are awaiting approval.',
       clear: !pendingCount,
       action: pendingCount ? 'Review →' : undefined,
-      onAction: () => onNavigate?.('consolidation'),
+      onAction: () => onNavigate?.('consolidation', financialFocus),
     },
-    /* Retired for now, at the user's request - state.unattributed is still there (still shown
-       on Source Data), just not surfaced as a Home card. To bring it back: uncomment this, the
-       unattr/unattrTotal lines above, and drop the id:'ready' card below back to 3 cards.
-    {
-      id: 'unassigned', tone: unattrTotal ? 'warn' : 'ok', title: 'Unassigned costs',
-      icon: <IconUnlink />,
-      figure: compact(unattrTotal),
-      sub: unattr.length ? `${unattr.length} record${unattr.length === 1 ? '' : 's'}` : undefined,
-      detail: unattrTotal ? 'Costs are not currently linked to a project.'
-        : 'Every cost is linked to a project.',
-      clear: !unattrTotal,
-      action: unattrTotal ? 'Review →' : undefined,
-      onAction: () => onNavigate?.('source'),
-    },
-    */
     {
       id: 'ready', tone: readyRows.length ? 'info' : 'ok', title: 'Ready to finalize',
       icon: <IconCheck />,
@@ -237,7 +242,11 @@ export default function Home({ state, onNavigate, filterHost, onToast }) {
         : 'Nothing is currently waiting on a finalize decision.',
       clear: !readyRows.length,
       action: readyRows.length ? 'Review →' : undefined,
-      onAction: () => onNavigate?.('consolidation'),
+      // A single ready project is named exactly, so the destination is that project, not
+      // whatever Home's own filter happens to say - closer to "the respective related item"
+      // than the generic financialFocus the other three cards use.
+      onAction: () => onNavigate?.('consolidation', readyRows.length === 1
+        ? { project: readyRows[0].project, month: readyRows[0].month } : financialFocus),
     },
     {
       // The headline figure/tone/detail is driven by lateRows only - pendingRows is never a
@@ -304,9 +313,55 @@ export default function Home({ state, onNavigate, filterHost, onToast }) {
       detail: pendingCount
         ? `${pendingCount} financial decision${pendingCount === 1 ? '' : 's'} still unresolved.`
         : 'Nothing is blocking finalization.',
-      action: 'Open Financial Outcome →', onAction: () => onNavigate?.('consolidation'),
+      action: 'Open Financial Outcome →', onAction: () => onNavigate?.('consolidation', financialFocus),
     },
   ].sort((a, b) => SEVERITY_RANK[a.tone] - SEVERITY_RANK[b.tone])
+
+  // Opens the same detail list the "Evidence status" alert card itself expands, then scrolls
+  // it into view - the three submission figures below are exactly that card's own numbers
+  // (expected/received/pending), so "the respective related item" for all three is that one
+  // list, not a second copy of it.
+  const openEvidence = () => {
+    setEvidenceOpen(true)
+    requestAnimationFrame(() => {
+      document.getElementById('evidence-status-card')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }
+
+  const receivedCount = (counts.onTime || 0) + (counts.late || 0)
+  const pendingReportsCount = (counts.missing || 0) + (counts.pending || 0)
+  // counts.* is a portfolio-wide, every-project/every-month total (service.py builds it once
+  // from the full sample, not scoped to Home's own Project/Month filters) - so its destination
+  // is "all" on both axes, the honest match for what the figure actually adds up, rather than
+  // guessing at whichever month happens to be selected here.
+  const glance = [
+    { label: 'Reports Expected', value: counts.expected, icon: <IconInbox />, tone: 'neutral',
+      onClick: openEvidence },
+    { label: 'Reports Received', value: receivedCount,
+      sub: counts.expected ? `${Math.round((receivedCount / counts.expected) * 1000) / 10}%` : null,
+      icon: <IconCheck />, tone: 'ok', onClick: openEvidence },
+    { label: 'Pending Reports', value: pendingReportsCount,
+      sub: counts.expected ? `${Math.round((pendingReportsCount / counts.expected) * 1000) / 10}%` : null,
+      icon: <IconClock />, tone: pendingReportsCount ? 'warn' : 'ok', onClick: openEvidence },
+    { label: 'Reconciliations', value: counts.compared, sub: 'Total', icon: <IconScales />, tone: 'neutral',
+      // "Total" - the whole reconciliation surface, so it lands on Financial Outcome as-is,
+      // browsable project by project, rather than pre-filtered to any one subset.
+      onClick: () => onNavigate?.('consolidation', { project: 'all', month: 'all' }) },
+    { label: 'Unreconciled Items', value: counts.differs,
+      sub: counts.compared ? `${Math.round((counts.differs / counts.compared) * 1000) / 10}%` : null,
+      icon: <IconGauge />, tone: counts.differs ? 'warn' : 'ok',
+      // Distinct from "Reconciliations" above, not just a second link to the same top-of-page
+      // spot - expandExceptions pre-opens every project that isn't fully finalized, so the
+      // differing lines this figure counts are actually on screen on arrival, not one more
+      // click away.
+      onClick: () => onNavigate?.('consolidation', { project: 'all', month: 'all', expandExceptions: true }) },
+    { label: 'Exceptions / Issues', value: counts.toAttribute, sub: 'Requires attention',
+      icon: <IconInbox />, tone: counts.toAttribute ? 'bad' : 'ok',
+      onClick: () => onNavigate?.('source', { project: 'all', month: 'all' }) },
+  ]
+
+  const rowAccent = (r) => `row-accent-${withData.indexOf(r) % 3}`
 
   return (
     <>
@@ -322,83 +377,147 @@ export default function Home({ state, onNavigate, filterHost, onToast }) {
       )}
 
       <Section label="Portfolio at a glance">
-        <Tally label="Portfolio at a glance" items={[
-          { label: 'Total projects', value: scopedProjects.length, icon: <IconBuilding /> },
-          { label: 'Contract value', value: compact(portfolio.tender), icon: <IconCoins /> },
-          { label: 'Revenue', value: portfolio.revenue === null ? '—' : compact(portfolio.revenue),
-            icon: <IconTrendUp /> },
-          { label: 'Total cost', value: compact(portfolio.cost), icon: <IconReceipt /> },
-          {
-            // One word, never both - a loss should never read as "Profit / Loss" with the
-            // reader left to work out which half applies from the colour alone.
-            label: portfolio.profit === null ? 'Profit / Loss'
-              : portfolio.profit < 0 ? '↓ LOSS' : '↑ PROFIT',
-            value: portfolio.profit === null ? '—' : compact(portfolio.profit),
-            icon: <IconScales />,
-            // The one number this whole page exists to answer - bigger, and coloured by sign
-            // rather than reading as just another stat in the row. "accent" also colours and
-            // enlarges the PROFIT/LOSS label itself, matching Financial Outcome's own card.
-            tone: `big accent ${portfolio.profit !== null && portfolio.profit < 0 ? 'hot' : 'good'}`,
-          },
-          { label: 'Margin', value: portfolio.margin === null ? '—' : pct(portfolio.margin),
-            icon: <IconPercent /> },
-        ]} />
-      </Section>
-
-      <Section label="Financial performance"
-               count={{ text: 'Revenue, cost and profit by project' }}>
-        <Card>
-          <PerfChart rows={rows} />
-        </Card>
-      </Section>
-
-      <Section label="Project performance" count={{ text: masters.months.find((m) => m.key === month)?.label }}>
-        <Card>
-          <DataTable
-            rows={withData}
-            rowKey={(r) => r.code}
-            empty="No projects match."
-            footer
-            cols={[
-              { key: 'name', label: 'Project', sortable: false },
-              { key: 'tender', label: 'Tender', num: true, foot: 'sum', fmt: compact },
-              { key: 'revenue', label: 'Revenue', num: true, foot: 'sum', fmt: compact },
-              { key: 'cost', label: 'Cost', num: true, foot: 'sum', fmt: compact },
-              {
-                key: 'profit', label: 'Profit / loss', num: true, fmt: compact,
-                foot: (rs) => compact(rs.reduce((s, r) => s + r.profit, 0)),
-              },
-              {
-                key: 'margin', label: 'Margin', num: true,
-                foot: (rs) => {
-                  const rev = rs.reduce((s, r) => s + r.revenue, 0)
-                  const profit = rs.reduce((s, r) => s + r.profit, 0)
-                  return rev ? pct(Math.round((profit / rev) * 10000) / 100) : '—'
-                },
-                render: (r) => pct(r.margin),
-              },
-              { key: 'status', label: 'Status', sortable: false,
-                render: (r) => <Pill tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Pill> },
-              {
-                key: 'action', label: '', sortable: false,
-                render: (r) => (
-                  <button type="button" className="btn btn-quiet btn-xs"
-                          onClick={() => onNavigate?.('consolidation', { project: r.code, month })}>
-                    View outcome →
-                  </button>
-                ),
-              },
-            ]}
-          />
-        </Card>
-      </Section>
-
-      <Section label="Financial risk / attention">
-        <div className="grid2">
-          {attentionCards.map((c) => <AttentionCard key={c.id} {...c} />)}
+        <div className="kpi-grid">
+          <KpiCard tone="neutral" icon={<IconBuilding />} num={scopedProjects.length}
+                    label="Total Projects"
+                    sub={{ text: overallStatus === 'FINALIZED' ? 'All finalized' : 'Active',
+                      tone: overallStatus === 'FINALIZED' ? 'ok' : 'info' }} />
+          <KpiCard tone="accent" icon={<IconCoins />} num={portfolio.tender} format={compact}
+                    label="Contract Value" sub={{ text: 'Total contract value' }} />
+          <KpiCard tone="info" icon={<IconTrendUp />}
+                    num={portfolio.revenue} format={compact}
+                    label="Revenue" sub={{ text: 'Total revenue' }} />
+          <KpiCard tone="warn" icon={<IconReceipt />} num={portfolio.cost} format={compact}
+                    label="Total Cost" sub={{ text: 'Total project cost' }} />
+          <KpiCard tone={portfolio.profit !== null && portfolio.profit < 0 ? 'bad' : 'ok'}
+                    icon={<IconScales />}
+                    num={portfolio.profit} format={compact}
+                    valueTone={portfolio.profit !== null && portfolio.profit < 0 ? 'hot' : 'good'}
+                    label={portfolio.profit === null ? 'Profit / Loss'
+                      : portfolio.profit < 0 ? '↓ LOSS' : '↑ PROFIT'}
+                    subTone="accent-label"
+                    sub={profitDeltaPct !== null ? {
+                      text: `${profitDeltaPct >= 0 ? '↑' : '↓'} ${Math.abs(profitDeltaPct)}% vs ${prevMonthLabel}`,
+                      tone: profitDeltaPct >= 0 ? 'ok' : 'bad',
+                    } : undefined} />
+          <KpiCard tone="accent" icon={<IconPercent />}
+                    num={portfolio.margin} format={pct}
+                    label="Margin" sub={{ text: 'Cost-to-revenue ratio' }} />
         </div>
       </Section>
 
+      <div className="dash-grid">
+        <div className="dash-perf">
+          <div className="dash-charts">
+            {/* Short on purpose: this now shares a half-width column with Profitability Trend
+                (see .dash-charts) - the old, longer caption wrapped to two lines there and
+                made this header measurably taller than its neighbour's (verified with
+                Playwright: 79px vs 43px), which is what actually pushed this card's own top
+                edge down below Profitability Trend's, even though both still ended at the same
+                bottom. */}
+            <Section label="Financial Overview" count={{ text: 'By project' }}>
+              <Card><PerfChart rows={rows} /></Card>
+            </Section>
+            <Section label="Profitability Trend" count={{ text: `Last ${trendPoints.length} months` }}>
+              <Card><ProfitTrend points={trendPoints} /></Card>
+            </Section>
+          </div>
+
+          <Section label="Projects Performance"
+                   count={{ text: masters.months.find((m) => m.key === month)?.label }}
+                   right={<button type="button" className="btn btn-quiet btn-sm"
+                                   onClick={() => onNavigate?.('consolidation')}>
+                             View full report →
+                           </button>}>
+            <Card>
+              <DataTable
+                rows={withData}
+                rowKey={(r) => r.code}
+                rowClass={rowAccent}
+                empty="No projects match."
+                footer
+                cols={[
+                  { key: 'name', label: 'Project', sortable: false },
+                  { key: 'tender', label: 'Tender', num: true, foot: 'sum', fmt: compact },
+                  { key: 'revenue', label: 'Revenue', num: true, foot: 'sum', fmt: compact },
+                  { key: 'cost', label: 'Cost', num: true, foot: 'sum', fmt: compact },
+                  {
+                    key: 'profit', label: 'Profit / loss', num: true, fmt: compact,
+                    foot: (rs) => compact(rs.reduce((s, r) => s + r.profit, 0)),
+                  },
+                  {
+                    key: 'margin', label: 'Margin', num: true,
+                    foot: (rs) => {
+                      const rev = rs.reduce((s, r) => s + r.revenue, 0)
+                      const p = rs.reduce((s, r) => s + r.profit, 0)
+                      return rev ? pct(Math.round((p / rev) * 10000) / 100) : '—'
+                    },
+                    render: (r) => pct(r.margin),
+                  },
+                  { key: 'status', label: 'Status', sortable: false,
+                    render: (r) => <Pill tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Pill> },
+                  {
+                    key: 'action', label: 'Action', sortable: false,
+                    render: (r) => (
+                      <button type="button" className="btn btn-out btn-xs"
+                              onClick={() => onNavigate?.('consolidation', { project: r.code, month })}>
+                        View outcome →
+                      </button>
+                    ),
+                  },
+                ]}
+              />
+            </Card>
+          </Section>
+        </div>
+
+        <Section className="dash-glance" label="At a Glance"
+                 count={{ text: masters.months.find((m) => m.key === month)?.label }}>
+          <div className="glance-grid">
+            {glance.map((g) => (
+              <Card key={g.label}>
+                {g.onClick ? (
+                  <button type="button" className="pad glance-cell glance-clickable" onClick={g.onClick}>
+                    <span className={`glance-icon glance-icon-${g.tone}`} aria-hidden="true">{g.icon}</span>
+                    <div>
+                      <b>{g.value}</b>
+                      <span>{g.label}</span>
+                      {g.sub && <em>{g.sub}</em>}
+                    </div>
+                  </button>
+                ) : (
+                  <div className="pad glance-cell">
+                    <span className={`glance-icon glance-icon-${g.tone}`} aria-hidden="true">{g.icon}</span>
+                    <div>
+                      <b>{g.value}</b>
+                      <span>{g.label}</span>
+                      {g.sub && <em>{g.sub}</em>}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
+        </Section>
+
+        <Section className="dash-alerts" label="Alerts & Status">
+          <div className="sidebar-cards">
+            {attentionCards.map((c) => (
+              <div key={c.id} id={c.id === 'evidence' ? 'evidence-status-card' : undefined}>
+                <AttentionCard {...c} />
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section className="dash-activity" label="Recent Activity">
+          <Card>
+            <div className="pad">
+              <ActivityFeed items={activity || []} now={now} />
+            </div>
+          </Card>
+        </Section>
+      </div>
     </>
   )
 }

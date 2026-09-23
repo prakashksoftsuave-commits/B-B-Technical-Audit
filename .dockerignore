@@ -1,0 +1,22 @@
+# Keep the build context small and don't bake host-specific or secret state
+# into the image — runtime state is bind-mounted instead (see docker-compose.yml).
+
+**/__pycache__/
+**/*.py[cod]
+backend/venv/
+
+.env
+.env.*
+!.env.example
+data/
+
+frontend/node_modules/
+frontend/dist/
+
+demo_send/
+.git/
+.claude/
+.vscode/
+_old/
+*.md
+!README.md

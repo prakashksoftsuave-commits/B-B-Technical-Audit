@@ -162,10 +162,10 @@ def extract(path=None):
     totals = defaultdict(float)
     detail = []
 
-    def add(code, month, line, amount, module, desc, ref):
+    def add(code, month, line, amount, module, desc, ref, date):
         totals[(code, month, line)] += amount
         detail.append({"project": code, "month": month, "line": line, "amount": amount,
-                       "module": module, "description": desc, "ref": ref})
+                       "module": module, "description": desc, "ref": ref, "date": date})
 
     for r in con.execute("SELECT * FROM mms_purchase ORDER BY txn_date, id"):
         p = C.BY_ERP.get(r["erp_code"])
@@ -173,7 +173,7 @@ def extract(path=None):
             continue
         add(p["code"], _month_of(r["txn_date"]), "material", r["amount"], "MMS",
             f"{r['material']} {r['qty']:g}{r['uom']} @ {r['rate']:g} - {r['vendor']}",
-            r["po_no"] or "")
+            r["po_no"] or "", r["txn_date"])
 
     for r in con.execute("SELECT * FROM wbm_transaction ORDER BY txn_date, id"):
         p = C.BY_ERP.get(r["erp_code"])
@@ -181,28 +181,28 @@ def extract(path=None):
             continue
         line = C.WBM_CATEGORY[r["category"]]
         add(p["code"], _month_of(r["txn_date"]), line, r["amount"], f"WBM/{r['category']}",
-            f"{r['description'] or r['category']} - {r['party']}", "")
+            f"{r['description'] or r['category']} - {r['party']}", "", r["txn_date"])
 
     for r in con.execute("SELECT * FROM fba_charge ORDER BY txn_date, id"):
         p = C.BY_ERP.get(r["erp_code"])
         if not p:
             continue
         add(p["code"], _month_of(r["txn_date"]), "site", r["amount"], "FBA",
-            f"{r['asset']} ({r['charge_type']})", "")
+            f"{r['asset']} ({r['charge_type']})", "", r["txn_date"])
 
     for r in con.execute("SELECT * FROM rev_billing ORDER BY txn_date, id"):
         p = C.BY_ERP.get(r["erp_code"])
         if not p:
             continue
         add(p["code"], _month_of(r["txn_date"]), "revenue", r["amount"], "REV",
-            r["description"] or "Certified RA bill", r["ra_bill_no"] or "")
+            r["description"] or "Certified RA bill", r["ra_bill_no"] or "", r["txn_date"])
 
     for r in con.execute("SELECT * FROM hrm_salary ORDER BY txn_date, id"):
         p = C.BY_ERP.get(r["erp_code"])
         if not p:
             continue
         add(p["code"], _month_of(r["txn_date"]), "salary", r["amount"], "HRM",
-            r["description"] or "Site staff salary", "")
+            r["description"] or "Site staff salary", "", r["txn_date"])
 
     con.close()
     return dict(totals), detail

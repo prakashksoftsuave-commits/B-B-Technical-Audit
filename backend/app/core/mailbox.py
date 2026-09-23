@@ -40,6 +40,16 @@ FETCH_DIR = os.path.join(C.EMAIL_DIR, "_fetched")
 # calls always sees what the first one just saved.
 _lock = threading.Lock()
 SEEN_FILE = os.path.join(C.BASE, "fetched_message_ids.json")
+# A real arrival is otherwise only ever visible in the one HTTP response of whichever request
+# happened to be the one that caught it - every other poll (another tab, the 45s timer firing a
+# moment later, visibilitychange firing on every tab-switch) sees it as already-seen and reports
+# nothing. Found live: a mail arrived, got fetched fine, but the toast/bell was only ever in the
+# response of one lucky request among many firing within seconds of each other, and was missed.
+# This file makes "something arrived, not yet synced" real, persisted, server-side state -
+# anyone checking in afterward (any tab, any poll, however late) sees the same true backlog,
+# not just whoever happened to win the race. Cleared only when Sync actually folds it into a
+# real run (`acknowledge_pending`), matching "notify on arrival, only update figures on Sync."
+PENDING_FILE = os.path.join(C.BASE, "pending_arrivals.json")
 
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -94,6 +104,34 @@ def _remember(ids):
         json.dump(sorted(ids), f, indent=1)
 
 
+def pending_arrivals():
+    """The true, persisted backlog of returns fetched since the last Sync - not just whatever
+    one lucky request happened to catch. Safe to call as often as wanted; read-only."""
+    if not os.path.exists(PENDING_FILE):
+        return []
+    try:
+        with open(PENDING_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (ValueError, OSError):
+        return []
+
+
+def _add_pending(arrivals):
+    if not arrivals:
+        return
+    current = pending_arrivals()
+    current.extend(arrivals)
+    with open(PENDING_FILE, "w", encoding="utf-8") as f:
+        json.dump(current, f, indent=1)
+
+
+def acknowledge_pending():
+    """Sync just folded every currently-fetched return into a real run - the backlog notifying
+    about them is now stale, whichever tab or poll called Sync."""
+    if os.path.exists(PENDING_FILE):
+        os.remove(PENDING_FILE)
+
+
 def _filename(msg, n):
     """A stable name per message, so a re-fetch overwrites rather than duplicates."""
     mid = (msg.get("Message-ID") or f"no-id-{n}").strip("<> ")
@@ -107,7 +145,17 @@ def _filename(msg, n):
 
 def fetch(limit=None):
     """Pull messages from the mailbox into FETCH_DIR. See `_lock` above for why this holds one -
-    without it, two overlapping calls could each report the same single arrival as new."""
+    without it, two overlapping calls could each report the same single arrival as new.
+
+    Always waits its turn rather than skipping when another fetch is already running. A mail
+    arrival is a global, one-time event - whichever request actually runs the fetch first is the
+    only one that ever sees fetched > 0 - so a caller that skips itself when "busy" (tried once,
+    for the background poll specifically) can permanently miss a real notification if a
+    different poll/tab happened to win that race moments earlier. Found live during a multi-tab
+    demo rehearsal. The header-batching fix in _fetch_locked already brought a real fetch down
+    to a few seconds, so waiting here costs little - far less than silently swallowing an
+    arrival ever would.
+    """
     with _lock:
         return _fetch_locked(limit)
 
@@ -131,7 +179,12 @@ def _fetch_locked(limit=None):
     fetched, skipped, not_a_return, subjects, arrivals, failed = 0, 0, [], [], [], []
 
     try:
-        conn = imaplib.IMAP4_SSL(cfg["host"], cfg["port"])
+        # Without an explicit timeout, a socket blocks indefinitely by default - one stalled
+        # Gmail response (not even an error, just silence) used to be able to hang the whole
+        # Sync button for minutes with no feedback. 20s bounds every blocking call on this
+        # connection (login/select/search/fetch) to something a person waiting on it can
+        # actually make sense of.
+        conn = imaplib.IMAP4_SSL(cfg["host"], cfg["port"], timeout=20)
     except OSError as e:
         raise MailboxError(f"cannot reach {cfg['host']}:{cfg['port']} - {e}") from e
 
@@ -145,6 +198,10 @@ def _fetch_locked(limit=None):
             raise MailboxError(
                 f"login failed for {cfg['user']}: {e}. Check the App Password and that "
                 f"2-Step Verification is on.") from e
+        except OSError as e:
+            # A timeout (socket.timeout is an OSError) reads the same as any other
+            # can't-complete-login failure to a person watching the Sync button.
+            raise MailboxError(f"login timed out for {cfg['user']}: {e}") from e
 
         status, _ = conn.select(cfg["folder"], readonly=True)
         if status != "OK":
@@ -158,16 +215,72 @@ def _fetch_locked(limit=None):
         if limit:
             uids = uids[-int(limit):]
 
+        # Every header in ONE round trip instead of one per message - confirmed against the
+        # real mailbox that Gmail answers a multi-sequence-number FETCH with every header in a
+        # single response, each tagged with its own sequence number ("1 (RFC822.HEADER {n}",
+        # in ascending order). Parsed by that tag, not by response order, so a server that
+        # answered out of order or dropped one would still pair correctly rather than silently
+        # misattributing a header to the wrong message. Whatever this batch doesn't cover
+        # (fetch failed outright, or came back short) falls back to the old one-at-a-time path
+        # below for just those messages - never a guess, just slower for the ones it has to be.
+        head_by_seq = {}
+        if uids:
+            try:
+                hstatus, head_data = conn.fetch(b",".join(uids), "(RFC822.HEADER)")
+                if hstatus == "OK":
+                    for item in head_data:
+                        if isinstance(item, tuple):
+                            m = re.match(rb"(\d+)\s", item[0])
+                            if m:
+                                head_by_seq[m.group(1)] = item[1]
+            except (imaplib.IMAP4.error, OSError):
+                head_by_seq = {}   # fall through to the per-message path for every uid
+
         for n, uid in enumerate(uids):
-            # Gmail intermittently answers a FETCH with "System Error", which imaplib raises
-            # as an abort. One retry clears it; a second failure skips that message rather
-            # than losing the whole batch.
+            # Gmail intermittently answers a FETCH with "System Error" (raised as an abort) or
+            # just doesn't answer at all within the connection's own timeout (OSError) - either
+            # way, one retry clears most of them; a second failure skips that one message
+            # rather than losing the whole batch or hanging the request on it.
+            #
+            # Header first, full body only if it turns out to matter: on a steady-state mailbox
+            # almost everything fetched is already-seen or not a contributor, and the full
+            # RFC822 body was being downloaded for every one of those anyway before this was
+            # fixed - the one thing that actually decides whether a message matters (its
+            # Message-ID and sender) is already in the much smaller header. A Sync where
+            # nothing is new went from downloading N full emails to N small headers.
+            head_raw = head_by_seq.get(uid)
+            if head_raw is None:
+                head = None
+                for attempt in (1, 2):
+                    try:
+                        status, head = conn.fetch(uid, "(RFC822.HEADER)")
+                        break
+                    except (imaplib.IMAP4.error, OSError) as e:
+                        if attempt == 2:
+                            failed.append(f"{uid.decode(errors='replace')}: {e}")
+                            head = None
+                        continue
+                if not head or not isinstance(head[0], tuple):
+                    continue
+                head_raw = head[0][1]
+            hdr = email.message_from_bytes(head_raw)
+            mid = (hdr.get("Message-ID") or "").strip()
+            if mid and mid in seen:
+                skipped += 1
+                continue
+            sender = email.utils.parseaddr(hdr.get("From") or "")[1].lower()
+            if sender not in allowed:
+                not_a_return.append(sender or "(no sender)")
+                if mid:
+                    seen.add(mid)          # do not re-examine it on every refresh
+                continue
+
             parts = None
             for attempt in (1, 2):
                 try:
                     status, parts = conn.fetch(uid, "(RFC822)")
                     break
-                except imaplib.IMAP4.error as e:
+                except (imaplib.IMAP4.error, OSError) as e:
                     if attempt == 2:
                         failed.append(f"{uid.decode(errors='replace')}: {e}")
                         parts = None
@@ -176,16 +289,6 @@ def _fetch_locked(limit=None):
                 continue
             raw = parts[0][1]
             msg = email.message_from_bytes(raw)
-            mid = (msg.get("Message-ID") or "").strip()
-            if mid and mid in seen:
-                skipped += 1
-                continue
-            sender = email.utils.parseaddr(msg.get("From") or "")[1].lower()
-            if sender not in allowed:
-                not_a_return.append(sender or "(no sender)")
-                if mid:
-                    seen.add(mid)          # do not re-examine it on every refresh
-                continue
             path = os.path.join(FETCH_DIR, _filename(msg, n))
             with open(path, "wb") as f:
                 f.write(raw)
@@ -206,9 +309,10 @@ def _fetch_locked(limit=None):
                 "kind": C.INPUT_LABEL.get(kind, kind),
                 "month": C.month_label(month) if month else None,
             })
-      except imaplib.IMAP4.error as e:
-        # includes IMAP4.abort. Whatever the mailbox did, it must not surface as an
-        # unhandled exception - the caller decides whether a mail failure matters.
+      except (imaplib.IMAP4.error, OSError) as e:
+        # includes IMAP4.abort and a select()/search() timing out (OSError). Whatever the
+        # mailbox did, it must not surface as an unhandled exception - the caller decides
+        # whether a mail failure matters.
         raise MailboxError(f"mailbox error: {e}") from e
     finally:
         try:
@@ -217,11 +321,12 @@ def _fetch_locked(limit=None):
             pass
 
     _remember(seen)
+    _add_pending(arrivals)
     return {"configured": True, "fetched": fetched, "skipped": skipped,
             "ignored": len(not_a_return), "ignoredFrom": sorted(set(not_a_return)),
             "failed": len(failed), "failedDetail": failed,
             "total": len(uids), "mailbox": cfg["user"], "folder": cfg["folder"],
-            "subjects": subjects, "arrivals": arrivals}
+            "subjects": subjects, "arrivals": arrivals, "pendingArrivals": pending_arrivals()}
 
 
 def forget():
